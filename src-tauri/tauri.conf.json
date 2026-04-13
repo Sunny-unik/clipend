@@ -12,9 +12,12 @@
   "app": {
     "windows": [
       {
-        "title": "clipend",
-        "width": 800,
-        "height": 600
+        "title": "Clipend",
+        "width": 420,
+        "height": 500,
+        "decorations": false,
+        "resizable": true,
+        "center": true
       }
     ],
     "security": {
