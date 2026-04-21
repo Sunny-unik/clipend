@@ -74,10 +74,10 @@ body {
 .clip-row {
   display: flex;
   align-items: center;
-  padding: 4px 8px;
+  padding: 4px 8px 4px 0;
   cursor: pointer;
   border-bottom: 1px solid var(--border);
-  min-height: 26px;
+  min-height: 32px;
   user-select: none;
   transition: background 0.05s;
 }
@@ -97,7 +97,7 @@ body {
 
 .clip-row-index {
   flex-shrink: 0;
-  width: 22px;
+  padding-left: 4px;
   text-align: right;
   margin-right: 8px;
   font-size: 11px;
@@ -122,6 +122,133 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
+}
+
+.clip-row--file {
+  min-height: 40px;
+}
+
+.clip-row-thumb {
+  flex-shrink: 0;
+  width: 44px;
+  height: 32px;
+  object-fit: cover;
+  margin-right: 8px;
+  border-radius: 2px;
+  background: #000;
+  border: 1px solid #444;
+}
+
+.clip-row-file-prefix {
+  color: #6a9955;
+  margin-right: 6px;
+  font-weight: 500;
+}
+
+.clip-row--selected .clip-row-file-prefix {
+  color: #b5e0a5;
+}
+
+.clip-row-file-name {
+  color: var(--text);
+}
+
+.clip-row-file-path {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.clip-row--selected .clip-row-file-path {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.clip-row-title {
+  color: var(--text);
+}
+
+/* Hover tooltip — rendered inside its own webview window */
+.tooltip-window {
+  height: 100vh;
+  width: 100vw;
+  background: #1f1f1f;
+  border: 1px solid #555;
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow: hidden;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.clip-tooltip-body {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.clip-tooltip-content {
+  margin: 0 0 8px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: "SF Mono", "Cascadia Code", monospace;
+  font-size: 12px;
+  color: #d4d4d4;
+}
+
+.clip-tooltip-image {
+  display: block;
+  flex: 1;
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background: #000;
+  border-radius: 2px;
+  margin-bottom: 8px;
+  align-self: center;
+}
+
+.clip-tooltip-file {
+  margin-bottom: 6px;
+}
+
+.clip-tooltip-file-name {
+  color: #fff;
+  font-weight: 500;
+  margin-bottom: 2px;
+  word-break: break-all;
+}
+
+.clip-tooltip-file-path {
+  color: var(--text-dim);
+  font-family: "SF Mono", "Cascadia Code", monospace;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.clip-tooltip-meta {
+  border-top: 1px solid #333;
+  padding-top: 5px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.clip-tooltip-meta-row {
+  display: flex;
+  gap: 6px;
+}
+
+.clip-tooltip-meta-label {
+  color: #888;
+  min-width: 64px;
 }
 
 /* Bottom Bar */

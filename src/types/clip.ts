@@ -1,8 +1,13 @@
+export type ClipType = "text" | "file" | "image";
+
 export interface Clip {
   id: string;
   content: string;
   title: string | null;
   contentHash: string;
+  clipType: ClipType;
+  filePath: string | null;
+  fileName: string | null;
   isPinned: boolean;
   isFavorite: boolean;
   folderId: string | null;
@@ -31,6 +36,9 @@ export interface ClipRow {
   content: string;
   title: string | null;
   content_hash: string;
+  clip_type: string | null;
+  file_path: string | null;
+  file_name: string | null;
   is_pinned: number;
   is_favorite: number;
   folder_id: string | null;
@@ -38,12 +46,40 @@ export interface ClipRow {
   updated_at: number;
 }
 
+const IMAGE_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "bmp",
+  "webp",
+  "svg",
+  "ico",
+  "tiff",
+  "tif",
+  "avif",
+  "heic",
+  "heif",
+]);
+
+export function isImageFileName(name: string | null): boolean {
+  if (!name) return false;
+  const ext = name.split(".").pop()?.toLowerCase();
+  return !!ext && IMAGE_EXTENSIONS.has(ext);
+}
+
 export function clipFromRow(row: ClipRow): Clip {
+  const rawType = row.clip_type as ClipType | null;
+  const clipType: ClipType =
+    rawType === "file" || rawType === "image" ? rawType : "text";
   return {
     id: row.id,
     content: row.content,
     title: row.title,
     contentHash: row.content_hash,
+    clipType,
+    filePath: row.file_path,
+    fileName: row.file_name,
     isPinned: row.is_pinned === 1,
     isFavorite: row.is_favorite === 1,
     folderId: row.folder_id,

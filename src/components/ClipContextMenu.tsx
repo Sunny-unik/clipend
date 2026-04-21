@@ -62,16 +62,33 @@ export function ClipContextMenu({
     };
   };
 
+  const isFileLike = clip.clipType === "file" || clip.clipType === "image";
+
   const handleCopy = handleAction(async () => {
     setSkipNextEvent(true);
-    await invoke("write_to_clipboard", { text: clip.content });
+    if (isFileLike && clip.filePath) {
+      await invoke("write_files_to_clipboard", { paths: [clip.filePath] });
+    } else {
+      await invoke("write_to_clipboard", { text: clip.content });
+    }
+  });
+
+  const handleCopyPath = handleAction(async () => {
+    if (!clip.filePath) return;
+    setSkipNextEvent(true);
+    await invoke("write_to_clipboard", { text: clip.filePath });
   });
 
   return (
     <div className="context-menu" ref={menuRef} style={menuStyle}>
       <button className="context-item" onClick={handleCopy}>
-        Copy
+        {isFileLike ? "Copy file" : "Copy"}
       </button>
+      {isFileLike && (
+        <button className="context-item" onClick={handleCopyPath}>
+          Copy path
+        </button>
+      )}
       <div className="context-divider" />
       <button className="context-item" onClick={handleAction(() => togglePin(clip.id))}>
         {clip.isPinned ? "Unpin" : "Pin"}
@@ -83,9 +100,11 @@ export function ClipContextMenu({
       <button className="context-item" onClick={handleAction(onSetTitle)}>
         Set title...
       </button>
-      <button className="context-item" onClick={handleAction(onEdit)}>
-        Edit content...
-      </button>
+      {!isFileLike && (
+        <button className="context-item" onClick={handleAction(onEdit)}>
+          Edit content...
+        </button>
+      )}
       <button className="context-item" onClick={handleAction(() => duplicateClip(clip.id))}>
         Duplicate
       </button>

@@ -80,7 +80,11 @@ export function useAppKeyboard(searchInputRef: React.RefObject<HTMLInputElement 
         const clip = clips.find((c) => c.id === selectedClipId);
         if (clip) {
           setSkipNextEvent(true);
-          invoke("write_to_clipboard", { text: clip.content });
+          if ((clip.clipType === "file" || clip.clipType === "image") && clip.filePath) {
+            invoke("write_files_to_clipboard", { paths: [clip.filePath] });
+          } else {
+            invoke("write_to_clipboard", { text: clip.content });
+          }
         }
         return;
       }

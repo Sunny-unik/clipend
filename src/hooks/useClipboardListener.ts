@@ -2,9 +2,10 @@ import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useClipStore } from "../store/clipStore";
 
-interface ClipboardPayload {
-  text: string;
-}
+type ClipboardPayload =
+  | { kind: "text"; text: string }
+  | { kind: "image"; path: string; width: number; height: number }
+  | { kind: "files"; files: Array<{ path: string; name: string }> };
 
 export function useClipboardListener() {
   const addClip = useClipStore((s) => s.addClip);
@@ -13,15 +14,28 @@ export function useClipboardListener() {
     const unlisten = listen<ClipboardPayload>("clipboard-changed", (event) => {
       const store = useClipStore.getState();
 
-      // Skip if this was triggered by our own write_to_clipboard call
       if (store.skipNextEvent) {
         store.setSkipNextEvent(false);
         return;
       }
 
-      const text = event.payload.text;
-      if (text && text.trim().length > 0) {
-        store.addClip(text);
+      const payload = event.payload;
+      if (payload.kind === "text") {
+        if (payload.text && payload.text.trim().length > 0) {
+          store.addClip({ kind: "text", text: payload.text });
+        }
+      } else if (payload.kind === "image") {
+        store.addClip({
+          kind: "image",
+          path: payload.path,
+          width: payload.width,
+          height: payload.height,
+        });
+      } else if (payload.kind === "files") {
+        // One clip per file so each can be pinned/searched individually
+        for (const f of payload.files) {
+          store.addClip({ kind: "file", path: f.path, name: f.name });
+        }
       }
     });
 

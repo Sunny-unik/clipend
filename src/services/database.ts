@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS clips (
   content TEXT NOT NULL,
   title TEXT,
   content_hash TEXT NOT NULL,
+  clip_type TEXT NOT NULL DEFAULT 'text',
+  file_path TEXT,
+  file_name TEXT,
   is_pinned INTEGER NOT NULL DEFAULT 0,
   is_favorite INTEGER NOT NULL DEFAULT 0,
   folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL,
@@ -36,16 +39,32 @@ CREATE TABLE IF NOT EXISTS schema_version (
 INSERT OR IGNORE INTO schema_version VALUES (1);
 `;
 
+const MIGRATIONS: string[] = [
+  "ALTER TABLE clips ADD COLUMN clip_type TEXT NOT NULL DEFAULT 'text'",
+  "ALTER TABLE clips ADD COLUMN file_path TEXT",
+  "ALTER TABLE clips ADD COLUMN file_name TEXT",
+];
+
+async function runMigrations(database: Database): Promise<void> {
+  for (const stmt of MIGRATIONS) {
+    try {
+      await database.execute(stmt);
+    } catch {
+      // Column already exists — safe to ignore.
+    }
+  }
+}
+
 export async function initDatabase(): Promise<Database> {
   if (db) return db;
   db = await Database.load("sqlite:clipend.db");
-  // Run schema creation (IF NOT EXISTS makes it safe to re-run)
   const statements = SCHEMA_SQL.split(";")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
   for (const stmt of statements) {
     await db.execute(stmt);
   }
+  await runMigrations(db);
   return db;
 }
 
@@ -57,13 +76,16 @@ export async function getDatabase(): Promise<Database> {
 export async function insertClip(clip: Clip): Promise<void> {
   const database = await getDatabase();
   await database.execute(
-    `INSERT INTO clips (id, content, title, content_hash, is_pinned, is_favorite, folder_id, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    `INSERT INTO clips (id, content, title, content_hash, clip_type, file_path, file_name, is_pinned, is_favorite, folder_id, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
     [
       clip.id,
       clip.content,
       clip.title,
       clip.contentHash,
+      clip.clipType,
+      clip.filePath,
+      clip.fileName,
       clip.isPinned ? 1 : 0,
       clip.isFavorite ? 1 : 0,
       clip.folderId,
@@ -102,7 +124,9 @@ export async function getClips(opts: GetClipsOptions = {}): Promise<Clip[]> {
   }
 
   if (search && search.trim()) {
-    conditions.push(`(content LIKE $${paramIndex} OR title LIKE $${paramIndex})`);
+    conditions.push(
+      `(content LIKE $${paramIndex} OR title LIKE $${paramIndex} OR file_name LIKE $${paramIndex})`
+    );
     params.push(`%${search.trim()}%`);
     paramIndex++;
   }

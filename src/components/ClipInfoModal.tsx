@@ -45,9 +45,19 @@ export function ClipInfoModal({ clip, onClose }: ClipInfoModalProps) {
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
 
-  const sizeBytes = new TextEncoder().encode(clip.content).length;
-  const lineCount = clip.content.split(/\r?\n/).length;
-  const wordCount = clip.content.trim() ? clip.content.trim().split(/\s+/).length : 0;
+  const isText = clip.clipType === "text";
+  const sizeBytes = isText ? new TextEncoder().encode(clip.content).length : 0;
+  const lineCount = isText ? clip.content.split(/\r?\n/).length : 0;
+  const wordCount = isText && clip.content.trim()
+    ? clip.content.trim().split(/\s+/).length
+    : 0;
+
+  const typeLabel =
+    clip.clipType === "file"
+      ? "File"
+      : clip.clipType === "image"
+        ? "Image"
+        : "Text";
 
   return (
     <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -55,8 +65,25 @@ export function ClipInfoModal({ clip, onClose }: ClipInfoModalProps) {
         <div className="modal-header">Clip info</div>
         <div className="modal-body">
           <div className="info-grid">
+            <div className="info-label">Type</div>
+            <div className="info-value">{typeLabel}</div>
+
             <div className="info-label">Title</div>
             <div className="info-value">{clip.title || <span className="info-muted">— none —</span>}</div>
+
+            {clip.fileName && (
+              <>
+                <div className="info-label">File name</div>
+                <div className="info-value">{clip.fileName}</div>
+              </>
+            )}
+
+            {clip.filePath && (
+              <>
+                <div className="info-label">Path</div>
+                <div className="info-value info-mono">{clip.filePath}</div>
+              </>
+            )}
 
             <div className="info-label">Created</div>
             <div className="info-value">
@@ -70,11 +97,15 @@ export function ClipInfoModal({ clip, onClose }: ClipInfoModalProps) {
               <span className="info-relative"> · {formatRelative(clip.updatedAt)}</span>
             </div>
 
-            <div className="info-label">Size</div>
-            <div className="info-value">{formatBytes(sizeBytes)} ({clip.content.length} chars)</div>
+            {isText && (
+              <>
+                <div className="info-label">Size</div>
+                <div className="info-value">{formatBytes(sizeBytes)} ({clip.content.length} chars)</div>
 
-            <div className="info-label">Lines / Words</div>
-            <div className="info-value">{lineCount} lines · {wordCount} words</div>
+                <div className="info-label">Lines / Words</div>
+                <div className="info-value">{lineCount} lines · {wordCount} words</div>
+              </>
+            )}
 
             <div className="info-label">Pinned</div>
             <div className="info-value">{clip.isPinned ? "Yes" : "No"}</div>

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { nanoid } from "nanoid";
-import type { Clip } from "../types/clip";
+import type { Clip, ClipType } from "../types/clip";
 import {
   insertClip,
   getClips,
@@ -10,6 +10,11 @@ import {
   type GetClipsOptions,
 } from "../services/database";
 import { hashContent } from "../utils/hash";
+
+export type ClipInput =
+  | { kind: "text"; text: string }
+  | { kind: "file"; path: string; name: string }
+  | { kind: "image"; path: string; width: number; height: number };
 
 interface ClipStore {
   clips: Clip[];
@@ -21,7 +26,7 @@ interface ClipStore {
   hasMore: boolean;
   skipNextEvent: boolean;
 
-  addClip: (text: string) => Promise<void>;
+  addClip: (input: ClipInput) => Promise<void>;
   removeClip: (id: string) => Promise<void>;
   loadClips: (reset?: boolean) => Promise<void>;
   setSearch: (query: string) => void;
@@ -38,6 +43,45 @@ interface ClipStore {
 }
 
 const PAGE_SIZE = 50;
+const MAX_TEXT_BYTES = 102400; // 100 KB
+
+interface NormalizedInput {
+  content: string;
+  clipType: ClipType;
+  filePath: string | null;
+  fileName: string | null;
+  hashSeed: string;
+}
+
+function normalize(input: ClipInput): NormalizedInput {
+  if (input.kind === "text") {
+    const text =
+      input.text.length > MAX_TEXT_BYTES ? input.text.slice(0, MAX_TEXT_BYTES) : input.text;
+    return {
+      content: text,
+      clipType: "text",
+      filePath: null,
+      fileName: null,
+      hashSeed: text,
+    };
+  }
+  if (input.kind === "file") {
+    return {
+      content: input.path,
+      clipType: "file",
+      filePath: input.path,
+      fileName: input.name,
+      hashSeed: `file:${input.path}`,
+    };
+  }
+  return {
+    content: input.path,
+    clipType: "image",
+    filePath: input.path,
+    fileName: input.path.split(/[\\/]/).pop() ?? null,
+    hashSeed: `image:${input.path}`,
+  };
+}
 
 export const useClipStore = create<ClipStore>((set, get) => ({
   clips: [],
@@ -49,13 +93,12 @@ export const useClipStore = create<ClipStore>((set, get) => ({
   hasMore: true,
   skipNextEvent: false,
 
-  addClip: async (text: string) => {
-    const contentHash = await hashContent(text);
+  addClip: async (input: ClipInput) => {
+    const norm = normalize(input);
+    const contentHash = await hashContent(norm.hashSeed);
 
-    // Check for duplicate
     const existing = await findClipByHash(contentHash);
     if (existing) {
-      // Bump the existing clip to the top
       const now = Date.now();
       await updateClip(existing.id, { updatedAt: now });
       const updatedClip = { ...existing, updatedAt: now };
@@ -68,9 +111,12 @@ export const useClipStore = create<ClipStore>((set, get) => ({
     const now = Date.now();
     const clip: Clip = {
       id: nanoid(),
-      content: text.length > 102400 ? text.slice(0, 102400) : text, // Cap at 100KB
+      content: norm.content,
       title: null,
       contentHash,
+      clipType: norm.clipType,
+      filePath: norm.filePath,
+      fileName: norm.fileName,
       isPinned: false,
       isFavorite: false,
       folderId: null,
@@ -143,7 +189,6 @@ export const useClipStore = create<ClipStore>((set, get) => ({
       const updated = state.clips.map((c) =>
         c.id === id ? { ...c, isPinned: next, updatedAt: now } : c
       );
-      // Re-sort: pinned first, then by updatedAt desc
       updated.sort((a, b) => {
         if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
         return b.updatedAt - a.updatedAt;
