@@ -52,6 +52,33 @@ fn exit_app(app: tauri::AppHandle) {
 }
 
 #[tauri::command]
+fn paste_to_active_window(app: tauri::AppHandle) -> Result<(), String> {
+    use enigo::{Direction, Enigo, Key, Keyboard, Settings};
+
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+    if let Some(tt) = app.get_webview_window("tooltip") {
+        let _ = tt.hide();
+    }
+
+    // Let the OS restore focus to the previously-focused window.
+    thread::sleep(Duration::from_millis(120));
+
+    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
+    enigo
+        .key(Key::Control, Direction::Press)
+        .map_err(|e| e.to_string())?;
+    enigo
+        .key(Key::Unicode('v'), Direction::Click)
+        .map_err(|e| e.to_string())?;
+    enigo
+        .key(Key::Control, Direction::Release)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 fn toggle_window(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
         let visible = window.is_visible().unwrap_or(false);
@@ -230,7 +257,8 @@ pub fn run() {
             write_to_clipboard,
             write_files_to_clipboard,
             toggle_window,
-            exit_app
+            exit_app,
+            paste_to_active_window
         ])
         .setup(|app| {
             start_clipboard_monitor(app.handle().clone());

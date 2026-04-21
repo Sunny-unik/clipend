@@ -112,7 +112,12 @@ export function ClipCard({ clip, index, isSelected, onContextMenu }: ClipCardPro
 
   const handleClick = () => {
     setSelectedClip(clip.id);
-    handleCopy();
+  };
+
+  const handleDoubleClick = async () => {
+    setSelectedClip(clip.id);
+    await handleCopy();
+    await invoke("paste_to_active_window");
   };
 
   const handleMouseEnter = () => {
@@ -144,6 +149,7 @@ export function ClipCard({ clip, index, isSelected, onContextMenu }: ClipCardPro
         clip.clipType !== "text" ? " clip-row--file" : ""
       }`}
       onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
       onContextMenu={(e) => {
         e.preventDefault();
         setSelectedClip(clip.id);
