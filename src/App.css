@@ -49,8 +49,8 @@ body {
   justify-content: space-between;
   height: 30px;
   padding-left: 10px;
-  background: linear-gradient(90deg, #0a2540 0%, #0f4a5c 100%);
-  border-bottom: 1px solid #0b5a70;
+  background: var(--search-bg);
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   user-select: none;
 }
@@ -58,8 +58,8 @@ body {
 .title-bar-title {
   font-size: 12px;
   font-weight: 600;
-  color: #e6f4f7;
-  letter-spacing: 0.3px;
+  color: var(--text);
+  letter-spacing: 0.2px;
   flex: 1;
 }
 
@@ -71,15 +71,15 @@ body {
   height: 30px;
   background: transparent;
   border: none;
-  color: #9ec5d1;
+  color: var(--text-dim);
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
 }
 
 .title-bar-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
+  background: #3a3a3a;
+  color: var(--text);
 }
 
 /* Clip List */
@@ -232,7 +232,7 @@ body {
 }
 
 .clip-tooltip-content {
-  margin: 0 0 8px;
+  margin: 0;
   flex: 1;
   min-height: 0;
   overflow: auto;

@@ -106,7 +106,10 @@ export function ClipCard({ clip, index, isSelected, onContextMenu }: ClipCardPro
     if ((clip.clipType === "file" || clip.clipType === "image") && clip.filePath) {
       await invoke("write_files_to_clipboard", { paths: [clip.filePath] });
     } else {
-      await invoke("write_to_clipboard", { text: clip.content });
+      await invoke("write_to_clipboard", {
+        text: clip.content,
+        html: clip.htmlContent,
+      });
     }
   };
 

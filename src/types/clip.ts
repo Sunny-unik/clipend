@@ -3,6 +3,7 @@ export type ClipType = "text" | "file" | "image";
 export interface Clip {
   id: string;
   content: string;
+  htmlContent: string | null;
   title: string | null;
   contentHash: string;
   clipType: ClipType;
@@ -34,6 +35,7 @@ export interface AppSettings {
 export interface ClipRow {
   id: string;
   content: string;
+  html_content: string | null;
   title: string | null;
   content_hash: string;
   clip_type: string | null;
@@ -75,6 +77,7 @@ export function clipFromRow(row: ClipRow): Clip {
   return {
     id: row.id,
     content: row.content,
+    htmlContent: row.html_content,
     title: row.title,
     contentHash: row.content_hash,
     clipType,

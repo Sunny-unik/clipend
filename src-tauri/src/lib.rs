@@ -16,16 +16,46 @@ struct FilePayload {
 #[derive(Clone, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 enum ClipboardPayload {
-    Text { text: String },
-    Image { path: String, width: u32, height: u32 },
-    Files { files: Vec<FilePayload> },
+    Text {
+        text: String,
+        html: Option<String>,
+    },
+    Image {
+        path: String,
+        width: u32,
+        height: u32,
+    },
+    Files {
+        files: Vec<FilePayload>,
+    },
 }
 
 #[tauri::command]
-fn write_to_clipboard(text: String) -> Result<(), String> {
-    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-    clipboard.set_text(&text).map_err(|e| e.to_string())?;
-    Ok(())
+fn write_to_clipboard(text: String, html: Option<String>) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use clipboard_win::{formats, raw, set_clipboard, Clipboard};
+        let _guard = Clipboard::new_attempts(10)
+            .map_err(|e| format!("open clipboard: {:?}", e))?;
+        raw::empty().map_err(|e| format!("empty clipboard: {:?}", e))?;
+        set_clipboard(formats::Unicode, text.as_str())
+            .map_err(|e| format!("set text: {:?}", e))?;
+        if let Some(html_content) = html.as_deref() {
+            if !html_content.is_empty() {
+                let html_fmt = formats::Html::new().ok_or("register html format")?;
+                set_clipboard(html_fmt, html_content)
+                    .map_err(|e| format!("set html: {:?}", e))?;
+            }
+        }
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = html;
+        let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+        clipboard.set_text(&text).map_err(|e| e.to_string())?;
+        Ok(())
+    }
 }
 
 #[tauri::command]
@@ -120,6 +150,24 @@ fn read_clipboard_files() -> Option<Vec<String>> {
 
 #[cfg(not(windows))]
 fn read_clipboard_files() -> Option<Vec<String>> {
+    None
+}
+
+#[cfg(windows)]
+fn read_clipboard_html() -> Option<String> {
+    use clipboard_win::{formats, get_clipboard, Clipboard};
+    let _guard = Clipboard::new_attempts(5).ok()?;
+    let html_fmt = formats::Html::new()?;
+    let html: String = get_clipboard(html_fmt).ok()?;
+    if html.is_empty() {
+        None
+    } else {
+        Some(html)
+    }
+}
+
+#[cfg(not(windows))]
+fn read_clipboard_html() -> Option<String> {
     None
 }
 
@@ -218,7 +266,7 @@ fn start_clipboard_monitor(app_handle: tauri::AppHandle) {
                 continue;
             }
 
-            // Priority 3: text
+            // Priority 3: text (with optional HTML)
             if let Ok(current_text) = clipboard.get_text() {
                 if !current_text.is_empty() {
                     let changed = {
@@ -233,9 +281,13 @@ fn start_clipboard_monitor(app_handle: tauri::AppHandle) {
                             let mut guard = last.lock().unwrap();
                             *guard = LastKind::Text(current_text.clone());
                         }
+                        let html = read_clipboard_html();
                         let _ = app_handle.emit(
                             "clipboard-changed",
-                            ClipboardPayload::Text { text: current_text },
+                            ClipboardPayload::Text {
+                                text: current_text,
+                                html,
+                            },
                         );
                     }
                 }

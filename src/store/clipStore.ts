@@ -12,7 +12,7 @@ import {
 import { hashContent } from "../utils/hash";
 
 export type ClipInput =
-  | { kind: "text"; text: string }
+  | { kind: "text"; text: string; html?: string | null }
   | { kind: "file"; path: string; name: string }
   | { kind: "image"; path: string; width: number; height: number };
 
@@ -47,6 +47,7 @@ const MAX_TEXT_BYTES = 102400; // 100 KB
 
 interface NormalizedInput {
   content: string;
+  htmlContent: string | null;
   clipType: ClipType;
   filePath: string | null;
   fileName: string | null;
@@ -57,8 +58,10 @@ function normalize(input: ClipInput): NormalizedInput {
   if (input.kind === "text") {
     const text =
       input.text.length > MAX_TEXT_BYTES ? input.text.slice(0, MAX_TEXT_BYTES) : input.text;
+    const html = input.html ?? null;
     return {
       content: text,
+      htmlContent: html && html.length > 0 ? html : null,
       clipType: "text",
       filePath: null,
       fileName: null,
@@ -68,6 +71,7 @@ function normalize(input: ClipInput): NormalizedInput {
   if (input.kind === "file") {
     return {
       content: input.path,
+      htmlContent: null,
       clipType: "file",
       filePath: input.path,
       fileName: input.name,
@@ -76,6 +80,7 @@ function normalize(input: ClipInput): NormalizedInput {
   }
   return {
     content: input.path,
+    htmlContent: null,
     clipType: "image",
     filePath: input.path,
     fileName: input.path.split(/[\\/]/).pop() ?? null,
@@ -112,6 +117,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
     const clip: Clip = {
       id: nanoid(),
       content: norm.content,
+      htmlContent: norm.htmlContent,
       title: null,
       contentHash,
       clipType: norm.clipType,

@@ -69,7 +69,10 @@ export function ClipContextMenu({
     if (isFileLike && clip.filePath) {
       await invoke("write_files_to_clipboard", { paths: [clip.filePath] });
     } else {
-      await invoke("write_to_clipboard", { text: clip.content });
+      await invoke("write_to_clipboard", {
+        text: clip.content,
+        html: clip.htmlContent,
+      });
     }
   });
 
@@ -79,14 +82,42 @@ export function ClipContextMenu({
     await invoke("write_to_clipboard", { text: clip.filePath });
   });
 
+  const handlePaste = handleAction(async () => {
+    setSkipNextEvent(true);
+    if (isFileLike && clip.filePath) {
+      await invoke("write_files_to_clipboard", { paths: [clip.filePath] });
+    } else {
+      await invoke("write_to_clipboard", {
+        text: clip.content,
+        html: clip.htmlContent,
+      });
+    }
+    await invoke("paste_to_active_window");
+  });
+
+  const handlePastePlain = handleAction(async () => {
+    setSkipNextEvent(true);
+    // Plain text only (no html) → target app pastes unformatted.
+    await invoke("write_to_clipboard", { text: clip.content });
+    await invoke("paste_to_active_window");
+  });
+
   return (
     <div className="context-menu" ref={menuRef} style={menuStyle}>
+      <button className="context-item" onClick={handlePaste}>
+        Paste
+      </button>
       <button className="context-item" onClick={handleCopy}>
         {isFileLike ? "Copy file" : "Copy"}
       </button>
       {isFileLike && (
         <button className="context-item" onClick={handleCopyPath}>
           Copy path
+        </button>
+      )}
+      {!isFileLike && (
+        <button className="context-item" onClick={handlePastePlain}>
+          Paste without formatting
         </button>
       )}
       <div className="context-divider" />

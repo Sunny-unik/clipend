@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS folders (
 CREATE TABLE IF NOT EXISTS clips (
   id TEXT PRIMARY KEY,
   content TEXT NOT NULL,
+  html_content TEXT,
   title TEXT,
   content_hash TEXT NOT NULL,
   clip_type TEXT NOT NULL DEFAULT 'text',
@@ -43,6 +44,7 @@ const MIGRATIONS: string[] = [
   "ALTER TABLE clips ADD COLUMN clip_type TEXT NOT NULL DEFAULT 'text'",
   "ALTER TABLE clips ADD COLUMN file_path TEXT",
   "ALTER TABLE clips ADD COLUMN file_name TEXT",
+  "ALTER TABLE clips ADD COLUMN html_content TEXT",
 ];
 
 async function runMigrations(database: Database): Promise<void> {
@@ -76,11 +78,12 @@ export async function getDatabase(): Promise<Database> {
 export async function insertClip(clip: Clip): Promise<void> {
   const database = await getDatabase();
   await database.execute(
-    `INSERT INTO clips (id, content, title, content_hash, clip_type, file_path, file_name, is_pinned, is_favorite, folder_id, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+    `INSERT INTO clips (id, content, html_content, title, content_hash, clip_type, file_path, file_name, is_pinned, is_favorite, folder_id, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
     [
       clip.id,
       clip.content,
+      clip.htmlContent,
       clip.title,
       clip.contentHash,
       clip.clipType,
@@ -155,6 +158,11 @@ export async function updateClip(id: string, updates: Partial<Clip>): Promise<vo
   if (updates.content !== undefined) {
     sets.push(`content = $${paramIndex}`);
     params.push(updates.content);
+    paramIndex++;
+  }
+  if (updates.htmlContent !== undefined) {
+    sets.push(`html_content = $${paramIndex}`);
+    params.push(updates.htmlContent);
     paramIndex++;
   }
   if (updates.title !== undefined) {
