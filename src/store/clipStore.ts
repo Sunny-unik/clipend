@@ -29,6 +29,12 @@ interface ClipStore {
   setFolder: (folderId: string | null) => void;
   setSelectedClip: (id: string | null) => void;
   setSkipNextEvent: (skip: boolean) => void;
+
+  togglePin: (id: string) => Promise<void>;
+  toggleFavorite: (id: string) => Promise<void>;
+  duplicateClip: (id: string) => Promise<void>;
+  editClip: (id: string, content: string) => Promise<void>;
+  setTitle: (id: string, title: string | null) => Promise<void>;
 }
 
 const PAGE_SIZE = 50;
@@ -126,4 +132,70 @@ export const useClipStore = create<ClipStore>((set, get) => ({
   setSelectedClip: (id) => set({ selectedClipId: id }),
 
   setSkipNextEvent: (skip) => set({ skipNextEvent: skip }),
+
+  togglePin: async (id) => {
+    const clip = get().clips.find((c) => c.id === id);
+    if (!clip) return;
+    const next = !clip.isPinned;
+    const now = Date.now();
+    await updateClip(id, { isPinned: next, updatedAt: now });
+    set((state) => {
+      const updated = state.clips.map((c) =>
+        c.id === id ? { ...c, isPinned: next, updatedAt: now } : c
+      );
+      // Re-sort: pinned first, then by updatedAt desc
+      updated.sort((a, b) => {
+        if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+        return b.updatedAt - a.updatedAt;
+      });
+      return { clips: updated };
+    });
+  },
+
+  toggleFavorite: async (id) => {
+    const clip = get().clips.find((c) => c.id === id);
+    if (!clip) return;
+    const next = !clip.isFavorite;
+    await updateClip(id, { isFavorite: next });
+    set((state) => ({
+      clips: state.clips.map((c) =>
+        c.id === id ? { ...c, isFavorite: next } : c
+      ),
+    }));
+  },
+
+  duplicateClip: async (id) => {
+    const clip = get().clips.find((c) => c.id === id);
+    if (!clip) return;
+    const now = Date.now();
+    const newClip: Clip = {
+      ...clip,
+      id: nanoid(),
+      isPinned: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await insertClip(newClip);
+    set((state) => ({ clips: [newClip, ...state.clips] }));
+  },
+
+  editClip: async (id, content) => {
+    const newHash = await hashContent(content);
+    const now = Date.now();
+    await updateClip(id, { content, contentHash: newHash, updatedAt: now });
+    set((state) => ({
+      clips: state.clips.map((c) =>
+        c.id === id
+          ? { ...c, content, contentHash: newHash, updatedAt: now }
+          : c
+      ),
+    }));
+  },
+
+  setTitle: async (id, title) => {
+    await updateClip(id, { title });
+    set((state) => ({
+      clips: state.clips.map((c) => (c.id === id ? { ...c, title } : c)),
+    }));
+  },
 }));
