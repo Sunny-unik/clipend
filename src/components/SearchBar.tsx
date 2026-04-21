@@ -1,4 +1,4 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import { useClipStore } from "../store/clipStore";
 
 interface SearchBarProps {
@@ -8,12 +8,19 @@ interface SearchBarProps {
 export function SearchBar({ inputRef }: SearchBarProps) {
   const searchQuery = useClipStore((s) => s.searchQuery);
   const setSearch = useClipStore((s) => s.setSearch);
+  const [value, setValue] = useState(searchQuery);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const handleChange = (value: string) => {
+  // Reflect external changes (e.g. store-level clear on window re-focus).
+  useEffect(() => {
+    setValue(searchQuery);
+  }, [searchQuery]);
+
+  const handleChange = (v: string) => {
+    setValue(v);
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
-      setSearch(value);
+      setSearch(v);
     }, 300);
   };
 
@@ -30,7 +37,7 @@ export function SearchBar({ inputRef }: SearchBarProps) {
         type="text"
         className="search-input"
         placeholder="Search"
-        defaultValue={searchQuery}
+        value={value}
         onChange={(e) => handleChange(e.target.value)}
       />
     </div>

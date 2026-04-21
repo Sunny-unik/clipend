@@ -74,24 +74,23 @@ export function useAppKeyboard(searchInputRef: React.RefObject<HTMLInputElement 
         return;
       }
 
-      // Enter: copy + paste selected clip (same as double-click)
-      if (e.key === "Enter" && !isSearchFocused) {
-        e.preventDefault();
+      // Enter: copy + paste selected clip (works from search box too)
+      if (e.key === "Enter") {
         const clip = clips.find((c) => c.id === selectedClipId);
-        if (clip) {
-          setSkipNextEvent(true);
-          (async () => {
-            if ((clip.clipType === "file" || clip.clipType === "image") && clip.filePath) {
-              await invoke("write_files_to_clipboard", { paths: [clip.filePath] });
-            } else {
-              await invoke("write_to_clipboard", {
-                text: clip.content,
-                html: clip.htmlContent,
-              });
-            }
-            await invoke("paste_to_active_window");
-          })();
-        }
+        if (!clip) return;
+        e.preventDefault();
+        setSkipNextEvent(true);
+        (async () => {
+          if ((clip.clipType === "file" || clip.clipType === "image") && clip.filePath) {
+            await invoke("write_files_to_clipboard", { paths: [clip.filePath] });
+          } else {
+            await invoke("write_to_clipboard", {
+              text: clip.content,
+              html: clip.htmlContent,
+            });
+          }
+          await invoke("paste_to_active_window");
+        })();
         return;
       }
 

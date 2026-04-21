@@ -233,11 +233,23 @@ export const useClipStore = create<ClipStore>((set, get) => ({
   editClip: async (id, content) => {
     const newHash = await hashContent(content);
     const now = Date.now();
-    await updateClip(id, { content, contentHash: newHash, updatedAt: now });
+    // An edited clip becomes plain text — drop any stale HTML formatting.
+    await updateClip(id, {
+      content,
+      htmlContent: null,
+      contentHash: newHash,
+      updatedAt: now,
+    });
     set((state) => ({
       clips: state.clips.map((c) =>
         c.id === id
-          ? { ...c, content, contentHash: newHash, updatedAt: now }
+          ? {
+              ...c,
+              content,
+              htmlContent: null,
+              contentHash: newHash,
+              updatedAt: now,
+            }
           : c
       ),
     }));

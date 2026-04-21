@@ -1,5 +1,8 @@
 import { useEffect, useRef } from "react";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import {
+  getCurrentWebviewWindow,
+  WebviewWindow,
+} from "@tauri-apps/api/webviewWindow";
 import { useClipboardListener } from "./hooks/useClipboardListener";
 import { useGlobalShortcut, useAppKeyboard } from "./hooks/useKeyboardShortcuts";
 import { useClipStore } from "./store/clipStore";
@@ -45,6 +48,34 @@ function App() {
     ensureTooltipWindow().catch((err) => {
       console.warn("Failed to pre-create tooltip window:", err);
     });
+
+    const focusSearch = () => {
+      requestAnimationFrame(() => {
+        const el = searchInputRef.current;
+        if (!el) return;
+        el.focus();
+        el.select();
+      });
+    };
+
+    focusSearch();
+
+    let unlisten: (() => void) | null = null;
+    getCurrentWebviewWindow()
+      .onFocusChanged(({ payload: focused }) => {
+        if (focused) {
+          const store = useClipStore.getState();
+          if (store.searchQuery) store.setSearch("");
+          focusSearch();
+        }
+      })
+      .then((fn) => {
+        unlisten = fn;
+      });
+
+    return () => {
+      unlisten?.();
+    };
   }, [loadClips, loadSettings]);
 
   useClipboardListener();
