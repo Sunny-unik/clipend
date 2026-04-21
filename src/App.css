@@ -42,6 +42,46 @@ body {
   overflow: hidden;
 }
 
+/* Title bar */
+.title-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 30px;
+  padding-left: 10px;
+  background: var(--search-bg);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.title-bar-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.2px;
+  flex: 1;
+}
+
+.title-bar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 30px;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.title-bar-btn:hover {
+  background: #3a3a3a;
+  color: var(--text);
+}
+
 /* Clip List */
 .clip-list {
   height: 100%;
@@ -339,6 +379,11 @@ body {
 .options-item--active {
   color: #fff;
   background: #2a2d2e;
+}
+
+.options-item--danger:hover {
+  background: #7a2828;
+  color: #fff;
 }
 
 .options-section-label {

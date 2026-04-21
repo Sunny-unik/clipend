@@ -47,9 +47,16 @@ fn write_files_to_clipboard(paths: Vec<String>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn exit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
+#[tauri::command]
 fn toggle_window(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
-        if window.is_visible().unwrap_or(false) {
+        let visible = window.is_visible().unwrap_or(false);
+        let focused = window.is_focused().unwrap_or(false);
+        if visible && focused {
             window.hide().map_err(|e| e.to_string())?;
         } else {
             window.show().map_err(|e| e.to_string())?;
@@ -222,10 +229,33 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             write_to_clipboard,
             write_files_to_clipboard,
-            toggle_window
+            toggle_window,
+            exit_app
         ])
         .setup(|app| {
             start_clipboard_monitor(app.handle().clone());
+
+            if let Some(window) = app.get_webview_window("main") {
+                let window_clone = window.clone();
+                let app_handle = app.handle().clone();
+                window.on_window_event(move |event| {
+                    let hide_all = || {
+                        let _ = window_clone.hide();
+                        if let Some(tt) = app_handle.get_webview_window("tooltip") {
+                            let _ = tt.hide();
+                        }
+                    };
+                    match event {
+                        tauri::WindowEvent::Focused(false) => hide_all(),
+                        tauri::WindowEvent::CloseRequested { api, .. } => {
+                            api.prevent_close();
+                            hide_all();
+                        }
+                        _ => {}
+                    }
+                });
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())

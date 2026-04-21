@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useClipStore } from "../store/clipStore";
 
@@ -44,6 +45,11 @@ export function OptionsMenu() {
     setOpen(false);
   };
 
+  const handleExit = async () => {
+    setOpen(false);
+    await invoke("exit_app");
+  };
+
   return (
     <div className="options-menu-wrapper" ref={menuRef}>
       <button
@@ -77,6 +83,12 @@ export function OptionsMenu() {
           <div className="options-divider" />
           <button className="options-item" onClick={openSettings}>
             Options...
+          </button>
+          <button
+            className="options-item options-item--danger"
+            onClick={handleExit}
+          >
+            Exit
           </button>
         </div>
       )}
