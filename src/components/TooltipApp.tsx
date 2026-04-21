@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import type { Clip } from "../types/clip";
 import { ClipTooltipContent } from "./ClipTooltipContent";
 
@@ -16,7 +16,15 @@ export function TooltipApp() {
   }, []);
 
   return (
-    <div className="tooltip-window">
+    <div
+      className="tooltip-window"
+      onMouseEnter={() => {
+        emit("tooltip-mouse-enter");
+      }}
+      onMouseLeave={() => {
+        emit("tooltip-mouse-leave");
+      }}
+    >
       {clip && <ClipTooltipContent clip={clip} />}
     </div>
   );

@@ -10,6 +10,7 @@ import { useSettingsStore } from "./store/settingsStore";
 import { initDatabase } from "./services/database";
 import { Layout } from "./components/Layout";
 import { ClipList } from "./components/ClipList";
+import { setupTooltipListeners } from "./lib/tooltipController";
 import "./App.css";
 
 async function ensureTooltipWindow() {
@@ -48,6 +49,7 @@ function App() {
     ensureTooltipWindow().catch((err) => {
       console.warn("Failed to pre-create tooltip window:", err);
     });
+    setupTooltipListeners().catch(() => {});
 
     const focusSearch = () => {
       requestAnimationFrame(() => {
