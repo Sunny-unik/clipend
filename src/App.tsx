@@ -3,6 +3,7 @@ import {
   getCurrentWebviewWindow,
   WebviewWindow,
 } from "@tauri-apps/api/webviewWindow";
+import { listen } from "@tauri-apps/api/event";
 import { useClipboardListener } from "./hooks/useClipboardListener";
 import { useGlobalShortcut, useAppKeyboard } from "./hooks/useKeyboardShortcuts";
 import { useClipStore } from "./store/clipStore";
@@ -66,8 +67,16 @@ function App() {
         unlisten = fn;
       });
 
+    let unlistenSettings: (() => void) | null = null;
+    listen("settings-updated", () => {
+      loadSettings();
+    }).then((fn) => {
+      unlistenSettings = fn;
+    });
+
     return () => {
       unlisten?.();
+      unlistenSettings?.();
     };
   }, [loadClips, loadSettings]);
 

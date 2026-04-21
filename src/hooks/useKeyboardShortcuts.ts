@@ -4,6 +4,19 @@ import { invoke } from "@tauri-apps/api/core";
 import { useClipStore } from "../store/clipStore";
 import { useSettingsStore } from "../store/settingsStore";
 
+function matchesShortcut(e: KeyboardEvent, shortcut: string): boolean {
+  if (!shortcut) return false;
+  const parts = shortcut.split("+").map((p) => p.trim());
+  const key = parts[parts.length - 1];
+  const mods = new Set(parts.slice(0, -1));
+  if (e.ctrlKey !== mods.has("Ctrl")) return false;
+  if (e.altKey !== mods.has("Alt")) return false;
+  if (e.shiftKey !== mods.has("Shift")) return false;
+  if (e.metaKey !== (mods.has("Super") || mods.has("Meta"))) return false;
+  const pressed = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+  return pressed === key;
+}
+
 export function useGlobalShortcut() {
   const toggleShortcut = useSettingsStore((s) => s.toggleShortcut);
 
@@ -31,6 +44,7 @@ export function useAppKeyboard(searchInputRef: React.RefObject<HTMLInputElement 
   const setSelectedClip = useClipStore((s) => s.setSelectedClip);
   const removeClip = useClipStore((s) => s.removeClip);
   const setSkipNextEvent = useClipStore((s) => s.setSkipNextEvent);
+  const deleteShortcut = useSettingsStore((s) => s.deleteClipShortcut);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -91,16 +105,21 @@ export function useAppKeyboard(searchInputRef: React.RefObject<HTMLInputElement 
         return;
       }
 
-      // Delete: remove selected clip
-      if (e.key === "Delete" && !isSearchFocused) {
-        e.preventDefault();
-        if (selectedClipId) {
-          const currentIndex = clips.findIndex((c) => c.id === selectedClipId);
-          removeClip(selectedClipId);
-          const nextClip = clips[currentIndex + 1] || clips[currentIndex - 1];
-          setSelectedClip(nextClip?.id ?? null);
+      // Configurable delete clip shortcut. If the shortcut has no modifiers
+      // and search is focused, we let the input handle the key (so Backspace/
+      // Delete still edit the query instead of removing the clip).
+      if (matchesShortcut(e, deleteShortcut)) {
+        const hasModifier = e.ctrlKey || e.altKey || e.metaKey || e.shiftKey;
+        if (!isSearchFocused || hasModifier) {
+          e.preventDefault();
+          if (selectedClipId) {
+            const currentIndex = clips.findIndex((c) => c.id === selectedClipId);
+            removeClip(selectedClipId);
+            const nextClip = clips[currentIndex + 1] || clips[currentIndex - 1];
+            setSelectedClip(nextClip?.id ?? null);
+          }
+          return;
         }
-        return;
       }
 
       // Typing a printable character while nothing is focused:
@@ -134,5 +153,5 @@ export function useAppKeyboard(searchInputRef: React.RefObject<HTMLInputElement 
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [clips, selectedClipId, setSelectedClip, removeClip, setSkipNextEvent, searchInputRef]);
+  }, [clips, selectedClipId, setSelectedClip, removeClip, setSkipNextEvent, searchInputRef, deleteShortcut]);
 }

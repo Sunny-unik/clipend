@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { load, type Store } from "@tauri-apps/plugin-store";
+import { emit } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
-const DEFAULT_SHORTCUT = "Alt+V";
+const DEFAULT_TOGGLE = "Alt+V";
+const DEFAULT_DELETE = "Delete";
 
 const KEY_MAP: Record<string, string> = {
   Control: "Ctrl",
@@ -15,7 +17,6 @@ const KEY_MAP: Record<string, string> = {
 };
 
 function formatKeyEvent(e: KeyboardEvent): string | null {
-  // Ignore standalone modifier presses
   if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return null;
 
   const parts: string[] = [];
@@ -24,35 +25,48 @@ function formatKeyEvent(e: KeyboardEvent): string | null {
   if (e.shiftKey) parts.push("Shift");
   if (e.metaKey) parts.push("Super");
 
-  const key = KEY_MAP[e.key] || e.key.length === 1 ? e.key.toUpperCase() : KEY_MAP[e.key] || e.key;
+  const mapped = KEY_MAP[e.key];
+  const key = mapped ?? (e.key.length === 1 ? e.key.toUpperCase() : e.key);
   parts.push(key);
 
   return parts.join("+");
 }
 
+type Field = "toggle" | "delete";
+
 export function SettingsApp() {
-  const [shortcut, setShortcut] = useState(DEFAULT_SHORTCUT);
-  const [recording, setRecording] = useState(false);
+  const [toggle, setToggle] = useState(DEFAULT_TOGGLE);
+  const [del, setDel] = useState(DEFAULT_DELETE);
+  const [recording, setRecording] = useState<Field | null>(null);
   const [store, setStore] = useState<Store | null>(null);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     load("settings.json", { autoSave: true, defaults: {} }).then(async (s) => {
       setStore(s);
-      const val = await s.get<string>("toggleShortcut");
-      if (val) setShortcut(val);
+      const t = await s.get<string>("toggleShortcut");
+      const d = await s.get<string>("deleteClipShortcut");
+      if (t) setToggle(t);
+      if (d) setDel(d);
     });
   }, []);
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const combo = formatKeyEvent(e);
-    if (combo) {
-      setShortcut(combo);
-      setRecording(false);
-    }
-  }, []);
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === "Escape") {
+        setRecording(null);
+        return;
+      }
+      const combo = formatKeyEvent(e);
+      if (!combo) return;
+      if (recording === "toggle") setToggle(combo);
+      if (recording === "delete") setDel(combo);
+      setRecording(null);
+    },
+    [recording]
+  );
 
   useEffect(() => {
     if (!recording) return;
@@ -62,8 +76,10 @@ export function SettingsApp() {
 
   const handleSave = async () => {
     if (store) {
-      await store.set("toggleShortcut", shortcut);
+      await store.set("toggleShortcut", toggle);
+      await store.set("deleteClipShortcut", del);
     }
+    await emit("settings-updated");
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
   };
@@ -84,17 +100,30 @@ export function SettingsApp() {
           <div className="shortcut-input-group">
             <input
               type="text"
-              className={`shortcut-input${recording ? " shortcut-input--recording" : ""}`}
-              value={recording ? "Press a key combo..." : shortcut}
+              className={`shortcut-input${recording === "toggle" ? " shortcut-input--recording" : ""}`}
+              value={recording === "toggle" ? "Press a key combo..." : toggle}
               readOnly
-              onClick={() => setRecording(true)}
-              onBlur={() => setRecording(false)}
+              onClick={() => setRecording("toggle")}
+              onBlur={() => setRecording((r) => (r === "toggle" ? null : r))}
+            />
+          </div>
+        </div>
+        <div className="settings-row">
+          <label className="settings-label">Delete clip</label>
+          <div className="shortcut-input-group">
+            <input
+              type="text"
+              className={`shortcut-input${recording === "delete" ? " shortcut-input--recording" : ""}`}
+              value={recording === "delete" ? "Press a key combo..." : del}
+              readOnly
+              onClick={() => setRecording("delete")}
+              onBlur={() => setRecording((r) => (r === "delete" ? null : r))}
             />
           </div>
         </div>
       </div>
       <div className="settings-footer">
-        {saved && <span className="settings-saved">Saved! Restart app to apply.</span>}
+        {saved && <span className="settings-saved">Saved!</span>}
         <button className="settings-btn settings-btn--primary" onClick={handleSave}>
           OK
         </button>
