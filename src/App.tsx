@@ -51,24 +51,15 @@ function App() {
     });
     setupTooltipListeners().catch(() => {});
 
-    const focusSearch = () => {
-      requestAnimationFrame(() => {
-        const el = searchInputRef.current;
-        if (!el) return;
-        el.focus();
-        el.select();
-      });
-    };
-
-    focusSearch();
-
     let unlisten: (() => void) | null = null;
     getCurrentWebviewWindow()
       .onFocusChanged(({ payload: focused }) => {
         if (focused) {
           const store = useClipStore.getState();
           if (store.searchQuery) store.setSearch("");
-          focusSearch();
+          // Blur the search input if it held focus from a previous session —
+          // we want Esc to hide the window on a single press.
+          searchInputRef.current?.blur();
         }
       })
       .then((fn) => {

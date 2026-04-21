@@ -37,20 +37,17 @@ export function useAppKeyboard(searchInputRef: React.RefObject<HTMLInputElement 
       const target = e.target as HTMLElement;
       const isSearchFocused = target === searchInputRef.current;
 
-      // Ctrl+F or / to focus search
-      if ((e.key === "f" && (e.ctrlKey || e.metaKey)) || (e.key === "/" && !isSearchFocused)) {
+      // Ctrl+F to focus search
+      if (e.key === "f" && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         searchInputRef.current?.focus();
         return;
       }
 
-      // Escape: blur search or hide window
+      // Escape: always hide window (single press)
       if (e.key === "Escape") {
-        if (isSearchFocused) {
-          searchInputRef.current?.blur();
-        } else {
-          invoke("toggle_window");
-        }
+        e.preventDefault();
+        invoke("toggle_window");
         return;
       }
 
@@ -102,6 +99,34 @@ export function useAppKeyboard(searchInputRef: React.RefObject<HTMLInputElement 
           removeClip(selectedClipId);
           const nextClip = clips[currentIndex + 1] || clips[currentIndex - 1];
           setSelectedClip(nextClip?.id ?? null);
+        }
+        return;
+      }
+
+      // Typing a printable character while nothing is focused:
+      // focus the search input and forward the character into it.
+      const isEditable =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target.isContentEditable;
+      if (
+        !isEditable &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        e.key.length === 1
+      ) {
+        const input = searchInputRef.current;
+        if (!input) return;
+        e.preventDefault();
+        input.focus();
+        const setter = Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype,
+          "value"
+        )?.set;
+        if (setter) {
+          setter.call(input, input.value + e.key);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
         }
         return;
       }
