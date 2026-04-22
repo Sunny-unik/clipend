@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "clipend",
+  "productName": "Clipend",
   "version": "0.1.0",
   "identifier": "com.sunny-unik.clipend",
   "build": {
@@ -30,13 +30,24 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
+    "publisher": "sunny-unik",
+    "copyright": "Copyright (c) 2026 sunny-unik",
+    "category": "Productivity",
+    "shortDescription": "Clipboard history manager",
+    "longDescription": "Clipend is a Windows clipboard history manager with text, file, and image support.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico"
+      }
+    }
   }
 }

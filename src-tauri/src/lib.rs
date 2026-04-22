@@ -81,6 +81,24 @@ fn exit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+/// One-shot: copy the production clip DB over to the dev DB filename if the
+/// dev DB doesn't exist yet. Lets developers start with realistic data.
+#[tauri::command]
+fn seed_dev_db(app: tauri::AppHandle) -> Result<(), String> {
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let prod = data_dir.join("clipend.db");
+    let dev = data_dir.join("clipend-dev.db");
+    if dev.exists() {
+        return Ok(());
+    }
+    if !prod.exists() {
+        return Ok(());
+    }
+    fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
+    fs::copy(&prod, &dev).map_err(|e| format!("copy: {}", e))?;
+    Ok(())
+}
+
 fn drag_cache_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
@@ -503,7 +521,8 @@ pub fn run() {
             paste_to_active_window,
             prepare_text_drop_file,
             drag_icon_path,
-            hide_when_cursor_leaves
+            hide_when_cursor_leaves,
+            seed_dev_db
         ])
         .setup(|app| {
             start_clipboard_monitor(app.handle().clone());

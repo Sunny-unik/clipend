@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { load, type Store } from "@tauri-apps/plugin-store";
+import { load } from "@tauri-apps/plugin-store";
 import { emit } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getSetting, initDatabase, setSetting } from "../services/database";
+import { SETTINGS_FILENAME } from "../lib/env";
 
 const DEFAULT_TOGGLE = "Alt+V";
 const DEFAULT_DELETE = "Delete";
@@ -38,17 +40,41 @@ export function SettingsApp() {
   const [toggle, setToggle] = useState(DEFAULT_TOGGLE);
   const [del, setDel] = useState(DEFAULT_DELETE);
   const [recording, setRecording] = useState<Field | null>(null);
-  const [store, setStore] = useState<Store | null>(null);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    load("settings.json", { autoSave: true, defaults: {} }).then(async (s) => {
-      setStore(s);
-      const t = await s.get<string>("toggleShortcut");
-      const d = await s.get<string>("deleteClipShortcut");
+    (async () => {
+      await initDatabase();
+      let t = await getSetting("toggleShortcut");
+      let d = await getSetting("deleteClipShortcut");
+      // One-time migration from the legacy plugin-store file.
+      if (!t || !d) {
+        try {
+          const legacy = await load(SETTINGS_FILENAME, {
+            autoSave: false,
+            defaults: {},
+          });
+          if (!t) {
+            const v = await legacy.get<string>("toggleShortcut");
+            if (v) {
+              await setSetting("toggleShortcut", v);
+              t = v;
+            }
+          }
+          if (!d) {
+            const v = await legacy.get<string>("deleteClipShortcut");
+            if (v) {
+              await setSetting("deleteClipShortcut", v);
+              d = v;
+            }
+          }
+        } catch {
+          // Legacy file doesn't exist — fine, user just keeps defaults.
+        }
+      }
       if (t) setToggle(t);
       if (d) setDel(d);
-    });
+    })();
   }, []);
 
   const handleKeyDown = useCallback(
@@ -75,10 +101,8 @@ export function SettingsApp() {
   }, [recording, handleKeyDown]);
 
   const handleSave = async () => {
-    if (store) {
-      await store.set("toggleShortcut", toggle);
-      await store.set("deleteClipShortcut", del);
-    }
+    await setSetting("toggleShortcut", toggle);
+    await setSetting("deleteClipShortcut", del);
     await emit("settings-updated");
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);

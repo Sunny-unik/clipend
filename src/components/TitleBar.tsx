@@ -28,6 +28,7 @@ export function TitleBar() {
     >
       <span className="title-bar-title" data-tauri-drag-region="">
         Clipend
+        {import.meta.env.DEV && <span className="title-bar-env">dev</span>}
       </span>
       <button
         className="title-bar-btn"

@@ -1,6 +1,7 @@
 import Database from "@tauri-apps/plugin-sql";
 import type { Clip, ClipRow } from "../types/clip";
 import { clipFromRow } from "../types/clip";
+import { DB_FILENAME } from "../lib/env";
 
 let db: Database | null = null;
 
@@ -33,6 +34,12 @@ CREATE INDEX IF NOT EXISTS idx_clips_hash ON clips(content_hash);
 CREATE INDEX IF NOT EXISTS idx_clips_created ON clips(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_clips_folder ON clips(folder_id);
 
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS schema_version (
   version INTEGER PRIMARY KEY
 );
@@ -59,7 +66,7 @@ async function runMigrations(database: Database): Promise<void> {
 
 export async function initDatabase(): Promise<Database> {
   if (db) return db;
-  db = await Database.load("sqlite:clipend.db");
+  db = await Database.load(`sqlite:${DB_FILENAME}`);
   const statements = SCHEMA_SQL.split(";")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
@@ -219,4 +226,32 @@ export async function getClipCount(): Promise<number> {
     "SELECT COUNT(*) as count FROM clips"
   );
   return result[0]?.count ?? 0;
+}
+
+/* ---------- settings (key-value) ---------- */
+
+export async function getSetting(key: string): Promise<string | null> {
+  const database = await getDatabase();
+  const rows = await database.select<{ value: string }[]>(
+    "SELECT value FROM settings WHERE key = $1",
+    [key]
+  );
+  return rows[0]?.value ?? null;
+}
+
+export async function setSetting(key: string, value: string): Promise<void> {
+  const database = await getDatabase();
+  await database.execute(
+    `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, $3)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    [key, value, Date.now()]
+  );
+}
+
+export async function getAllSettings(): Promise<Record<string, string>> {
+  const database = await getDatabase();
+  const rows = await database.select<{ key: string; value: string }[]>(
+    "SELECT key, value FROM settings"
+  );
+  return Object.fromEntries(rows.map((r) => [r.key, r.value]));
 }

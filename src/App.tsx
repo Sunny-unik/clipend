@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   getCurrentWebviewWindow,
   WebviewWindow,
@@ -43,10 +44,19 @@ function App() {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    loadSettings();
-    initDatabase().then(() => {
-      loadClips(true);
-    });
+    (async () => {
+      // In dev, seed the dev DB from prod once (if it doesn't exist yet).
+      if (import.meta.env.DEV) {
+        try {
+          await invoke("seed_dev_db");
+        } catch (err) {
+          console.warn("seed_dev_db failed:", err);
+        }
+      }
+      await initDatabase();
+      await loadSettings();
+      await loadClips(true);
+    })();
     ensureTooltipWindow().catch((err) => {
       console.warn("Failed to pre-create tooltip window:", err);
     });

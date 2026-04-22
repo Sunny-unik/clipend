@@ -1,10 +1,11 @@
 import { create } from "zustand";
-import { load, type Store } from "@tauri-apps/plugin-store";
+import { load } from "@tauri-apps/plugin-store";
+import { getSetting, setSetting } from "../services/database";
+import { SETTINGS_FILENAME } from "../lib/env";
 
 interface SettingsStore {
   toggleShortcut: string;
   deleteClipShortcut: string;
-  _store: Store | null;
 
   loadSettings: () => Promise<void>;
   setToggleShortcut: (shortcut: string) => Promise<void>;
@@ -14,35 +15,55 @@ interface SettingsStore {
 export const DEFAULT_TOGGLE_SHORTCUT = "Alt+V";
 export const DEFAULT_DELETE_SHORTCUT = "Delete";
 
-export const useSettingsStore = create<SettingsStore>((set, get) => ({
+const KEY_TOGGLE = "toggleShortcut";
+const KEY_DELETE = "deleteClipShortcut";
+
+// Lazy one-off migration: older versions kept settings in a plugin-store
+// file. If the DB still has no value for a key but the legacy file does,
+// copy it over once so returning users don't lose their customizations.
+async function legacyValue(key: string): Promise<string | null> {
+  try {
+    const legacy = await load(SETTINGS_FILENAME, { autoSave: false, defaults: {} });
+    const v = await legacy.get<string>(key);
+    return v ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function readWithFallback(key: string): Promise<string | null> {
+  const fromDb = await getSetting(key);
+  if (fromDb) return fromDb;
+  const fromLegacy = await legacyValue(key);
+  if (fromLegacy) {
+    await setSetting(key, fromLegacy);
+    return fromLegacy;
+  }
+  return null;
+}
+
+export const useSettingsStore = create<SettingsStore>((set) => ({
   toggleShortcut: DEFAULT_TOGGLE_SHORTCUT,
   deleteClipShortcut: DEFAULT_DELETE_SHORTCUT,
-  _store: null,
 
   loadSettings: async () => {
-    const store = await load("settings.json", { autoSave: true, defaults: {} });
-    const toggle = await store.get<string>("toggleShortcut");
-    const del = await store.get<string>("deleteClipShortcut");
+    const [toggle, del] = await Promise.all([
+      readWithFallback(KEY_TOGGLE),
+      readWithFallback(KEY_DELETE),
+    ]);
     set({
-      _store: store,
       toggleShortcut: toggle || DEFAULT_TOGGLE_SHORTCUT,
       deleteClipShortcut: del || DEFAULT_DELETE_SHORTCUT,
     });
   },
 
   setToggleShortcut: async (shortcut: string) => {
-    const store = get()._store;
-    if (store) {
-      await store.set("toggleShortcut", shortcut);
-    }
+    await setSetting(KEY_TOGGLE, shortcut);
     set({ toggleShortcut: shortcut });
   },
 
   setDeleteClipShortcut: async (shortcut: string) => {
-    const store = get()._store;
-    if (store) {
-      await store.set("deleteClipShortcut", shortcut);
-    }
+    await setSetting(KEY_DELETE, shortcut);
     set({ deleteClipShortcut: shortcut });
   },
 }));

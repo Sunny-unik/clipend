@@ -61,6 +61,21 @@ body {
   color: #e6f4f7;
   letter-spacing: 0.3px;
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.title-bar-env {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #0a2540;
+  background: #f5d76e;
+  padding: 1px 6px;
+  border-radius: 3px;
+  line-height: 1.4;
 }
 
 .title-bar-btn {
