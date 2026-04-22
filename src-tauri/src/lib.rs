@@ -81,6 +81,47 @@ fn exit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+fn drag_cache_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?
+        .join("drag");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+#[tauri::command]
+fn prepare_text_drop_file(app: tauri::AppHandle, text: String) -> Result<String, String> {
+    let dir = drag_cache_dir(&app)?;
+    // Auto-increment: find the next free clip_N.txt
+    let mut i: u64 = 1;
+    loop {
+        let path = dir.join(format!("clip_{}.txt", i));
+        if !path.exists() {
+            fs::write(&path, &text).map_err(|e| e.to_string())?;
+            return Ok(path.to_string_lossy().into_owned());
+        }
+        i += 1;
+    }
+}
+
+#[tauri::command]
+fn drag_icon_path(app: tauri::AppHandle) -> Result<String, String> {
+    let dir = drag_cache_dir(&app)?;
+    let icon_path = dir.join("drag_icon.png");
+    if !icon_path.exists() {
+        let img: image::RgbaImage = image::ImageBuffer::from_pixel(
+            16,
+            16,
+            image::Rgba([80, 80, 80, 160]),
+        );
+        img.save_with_format(&icon_path, image::ImageFormat::Png)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(icon_path.to_string_lossy().into_owned())
+}
+
 #[tauri::command]
 fn paste_to_active_window(app: tauri::AppHandle) -> Result<(), String> {
     use enigo::{Direction, Enigo, Key, Keyboard, Settings};
@@ -305,12 +346,15 @@ pub fn run() {
         .plugin(tauri_plugin_sql::Builder::new().build())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_drag::init())
         .invoke_handler(tauri::generate_handler![
             write_to_clipboard,
             write_files_to_clipboard,
             toggle_window,
             exit_app,
-            paste_to_active_window
+            paste_to_active_window,
+            prepare_text_drop_file,
+            drag_icon_path
         ])
         .setup(|app| {
             start_clipboard_monitor(app.handle().clone());

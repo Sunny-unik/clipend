@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import type { Clip } from "../types/clip";
 import { isImageFileName } from "../types/clip";
 import { useClipStore } from "../store/clipStore";
@@ -81,6 +82,44 @@ export function ClipCard({ clip, index, isSelected, onContextMenu }: ClipCardPro
     scheduleHide();
   };
 
+  const handleDragStart = async (e: React.DragEvent) => {
+    // Cancel the HTML5 drag and kick off an OS-native file drag via the
+    // tauri-plugin-drag plugin (Ditto-style: a real file is generated and
+    // dragged, so targets see it as a native file drop).
+    e.preventDefault();
+    cancelPendingHide();
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+
+    try {
+      let path: string;
+      let icon: string = await invoke<string>("drag_icon_path");
+
+      if (clip.clipType === "text") {
+        path = await invoke<string>("prepare_text_drop_file", {
+          text: clip.content,
+        });
+      } else if (clip.filePath) {
+        path = clip.filePath;
+        // For image files, use the image itself as the drag preview.
+        if (
+          clip.clipType === "image" ||
+          (clip.clipType === "file" && isImageFileName(clip.fileName))
+        ) {
+          icon = clip.filePath;
+        }
+      } else {
+        return;
+      }
+
+      await startDrag({ item: [path], icon });
+    } catch (err) {
+      console.error("[drag] startDrag failed:", err);
+    }
+  };
+
   const showImagePreview =
     clip.filePath &&
     (clip.clipType === "image" ||
@@ -101,6 +140,8 @@ export function ClipCard({ clip, index, isSelected, onContextMenu }: ClipCardPro
       }}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      draggable
+      onDragStart={handleDragStart}
       data-clip-id={clip.id}
     >
       <span className="clip-row-index">{index + 1}</span>
