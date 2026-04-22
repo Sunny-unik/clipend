@@ -3,6 +3,7 @@ import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
 import { invoke } from "@tauri-apps/api/core";
 import { useClipStore } from "../store/clipStore";
 import { useSettingsStore } from "../store/settingsStore";
+import { pasteClips } from "../lib/clipActions";
 
 function matchesShortcut(e: KeyboardEvent, shortcut: string): boolean {
   if (!shortcut) return false;
@@ -42,7 +43,9 @@ export function useAppKeyboard(searchInputRef: React.RefObject<HTMLInputElement 
   const clips = useClipStore((s) => s.clips);
   const selectedClipId = useClipStore((s) => s.selectedClipId);
   const setSelectedClip = useClipStore((s) => s.setSelectedClip);
-  const removeClip = useClipStore((s) => s.removeClip);
+  const extendSelectionTo = useClipStore((s) => s.extendSelectionTo);
+  const selectAll = useClipStore((s) => s.selectAll);
+  const removeClips = useClipStore((s) => s.removeClips);
   const setSkipNextEvent = useClipStore((s) => s.setSkipNextEvent);
   const deleteShortcut = useSettingsStore((s) => s.deleteClipShortcut);
 
@@ -58,6 +61,13 @@ export function useAppKeyboard(searchInputRef: React.RefObject<HTMLInputElement 
         return;
       }
 
+      // Ctrl+A: select all clips (only when not typing in search)
+      if (e.key === "a" && (e.ctrlKey || e.metaKey) && !isSearchFocused) {
+        e.preventDefault();
+        selectAll();
+        return;
+      }
+
       // Escape: always hide window (single press)
       if (e.key === "Escape") {
         e.preventDefault();
@@ -65,7 +75,7 @@ export function useAppKeyboard(searchInputRef: React.RefObject<HTMLInputElement 
         return;
       }
 
-      // Arrow navigation
+      // Arrow navigation (Shift+Arrow extends the current selection)
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
         if (clips.length === 0) return;
@@ -81,27 +91,26 @@ export function useAppKeyboard(searchInputRef: React.RefObject<HTMLInputElement 
           nextIndex = currentIndex > 0 ? currentIndex - 1 : clips.length - 1;
         }
 
-        setSelectedClip(clips[nextIndex].id);
+        if (e.shiftKey) {
+          extendSelectionTo(clips[nextIndex].id);
+        } else {
+          setSelectedClip(clips[nextIndex].id);
+        }
         return;
       }
 
-      // Enter: copy + paste selected clip (works from search box too)
+      // Enter: copy + paste selected clip(s) (works from search box too).
+      // Multi-select pastes as multiple files via pasteClips.
       if (e.key === "Enter") {
-        const clip = clips.find((c) => c.id === selectedClipId);
-        if (!clip) return;
+        const state = useClipStore.getState();
+        const ids = new Set(state.selectedIds);
+        const selected = state.clips.filter((c) => ids.has(c.id));
+        if (selected.length === 0) return;
         e.preventDefault();
         setSkipNextEvent(true);
-        (async () => {
-          if ((clip.clipType === "file" || clip.clipType === "image") && clip.filePath) {
-            await invoke("write_files_to_clipboard", { paths: [clip.filePath] });
-          } else {
-            await invoke("write_to_clipboard", {
-              text: clip.content,
-              html: clip.htmlContent,
-            });
-          }
-          await invoke("paste_to_active_window");
-        })();
+        pasteClips(selected).catch((err) =>
+          console.error("[paste] failed:", err)
+        );
         return;
       }
 
@@ -112,10 +121,17 @@ export function useAppKeyboard(searchInputRef: React.RefObject<HTMLInputElement 
         const hasModifier = e.ctrlKey || e.altKey || e.metaKey || e.shiftKey;
         if (!isSearchFocused || hasModifier) {
           e.preventDefault();
-          if (selectedClipId) {
-            const currentIndex = clips.findIndex((c) => c.id === selectedClipId);
-            removeClip(selectedClipId);
-            const nextClip = clips[currentIndex + 1] || clips[currentIndex - 1];
+          const state = useClipStore.getState();
+          const ids = state.selectedIds;
+          if (ids.length > 0) {
+            // Pick the next clip to focus before removal (based on the last
+            // selected one's position).
+            const lastId = ids[ids.length - 1];
+            const currentIndex = clips.findIndex((c) => c.id === lastId);
+            removeClips(ids);
+            const remaining = clips.filter((c) => !ids.includes(c.id));
+            const nextClip =
+              remaining[currentIndex] ?? remaining[currentIndex - 1] ?? remaining[0];
             setSelectedClip(nextClip?.id ?? null);
           }
           return;
@@ -153,5 +169,15 @@ export function useAppKeyboard(searchInputRef: React.RefObject<HTMLInputElement 
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [clips, selectedClipId, setSelectedClip, removeClip, setSkipNextEvent, searchInputRef, deleteShortcut]);
+  }, [
+    clips,
+    selectedClipId,
+    setSelectedClip,
+    extendSelectionTo,
+    selectAll,
+    removeClips,
+    setSkipNextEvent,
+    searchInputRef,
+    deleteShortcut,
+  ]);
 }

@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import type { Clip } from "../types/clip";
 import { isImageFileName } from "../types/clip";
 import { useClipStore } from "../store/clipStore";
@@ -11,6 +10,7 @@ import {
   scheduleHide,
   showTooltip,
 } from "../lib/tooltipController";
+import { dragClips, pasteClips } from "../lib/clipActions";
 
 const HOVER_DELAY_MS = 400;
 
@@ -18,12 +18,15 @@ interface ClipCardProps {
   clip: Clip;
   index: number;
   isSelected: boolean;
+  isFocused: boolean;
   onContextMenu: (e: React.MouseEvent, clip: Clip) => void;
 }
 
-export function ClipCard({ clip, index, isSelected, onContextMenu }: ClipCardProps) {
+export function ClipCard({ clip, index, isSelected, isFocused, onContextMenu }: ClipCardProps) {
   const setSkipNextEvent = useClipStore((s) => s.setSkipNextEvent);
   const setSelectedClip = useClipStore((s) => s.setSelectedClip);
+  const toggleSelectClip = useClipStore((s) => s.toggleSelectClip);
+  const extendSelectionTo = useClipStore((s) => s.extendSelectionTo);
   const rowRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -45,14 +48,32 @@ export function ClipCard({ clip, index, isSelected, onContextMenu }: ClipCardPro
     }
   };
 
-  const handleClick = () => {
-    setSelectedClip(clip.id);
+  const handleClick = (e: React.MouseEvent) => {
+    if (e.shiftKey) {
+      extendSelectionTo(clip.id);
+    } else if (e.ctrlKey || e.metaKey) {
+      toggleSelectClip(clip.id);
+    } else {
+      setSelectedClip(clip.id);
+    }
   };
 
   const handleDoubleClick = async () => {
-    setSelectedClip(clip.id);
-    await handleCopy();
-    await invoke("paste_to_active_window");
+    const state = useClipStore.getState();
+    // If the double-clicked clip is part of a multi-selection, paste ALL
+    // selected clips as files. Otherwise fall back to single-clip paste.
+    const isInMulti =
+      state.selectedIds.length > 1 && state.selectedIds.includes(clip.id);
+    setSkipNextEvent(true);
+    if (isInMulti) {
+      const ids = new Set(state.selectedIds);
+      const selected = state.clips.filter((c) => ids.has(c.id));
+      await pasteClips(selected);
+    } else {
+      setSelectedClip(clip.id);
+      await handleCopy();
+      await invoke("paste_to_active_window");
+    }
   };
 
   const handleMouseEnter = () => {
@@ -83,9 +104,9 @@ export function ClipCard({ clip, index, isSelected, onContextMenu }: ClipCardPro
   };
 
   const handleDragStart = async (e: React.DragEvent) => {
-    // Cancel the HTML5 drag and kick off an OS-native file drag via the
-    // tauri-plugin-drag plugin (Ditto-style: a real file is generated and
-    // dragged, so targets see it as a native file drop).
+    // Cancel the HTML5 drag and kick off an OS-native file drag via
+    // tauri-plugin-drag. A real file is generated on disk for text clips so
+    // the drop target receives it as a native file (CF_HDROP on Windows).
     e.preventDefault();
     cancelPendingHide();
     if (timerRef.current !== null) {
@@ -94,27 +115,13 @@ export function ClipCard({ clip, index, isSelected, onContextMenu }: ClipCardPro
     }
 
     try {
-      let path: string;
-      let icon: string = await invoke<string>("drag_icon_path");
-
-      if (clip.clipType === "text") {
-        path = await invoke<string>("prepare_text_drop_file", {
-          text: clip.content,
-        });
-      } else if (clip.filePath) {
-        path = clip.filePath;
-        // For image files, use the image itself as the drag preview.
-        if (
-          clip.clipType === "image" ||
-          (clip.clipType === "file" && isImageFileName(clip.fileName))
-        ) {
-          icon = clip.filePath;
-        }
-      } else {
-        return;
-      }
-
-      await startDrag({ item: [path], icon });
+      const state = useClipStore.getState();
+      const isInMulti =
+        state.selectedIds.length > 1 && state.selectedIds.includes(clip.id);
+      const clipsToDrag = isInMulti
+        ? state.clips.filter((c) => state.selectedIds.includes(c.id))
+        : [clip];
+      await dragClips(clipsToDrag);
     } catch (err) {
       console.error("[drag] startDrag failed:", err);
     }
@@ -129,8 +136,8 @@ export function ClipCard({ clip, index, isSelected, onContextMenu }: ClipCardPro
     <div
       ref={rowRef}
       className={`clip-row${isSelected ? " clip-row--selected" : ""}${
-        clip.clipType !== "text" ? " clip-row--file" : ""
-      }`}
+        isFocused ? " clip-row--focused" : ""
+      }${clip.clipType !== "text" ? " clip-row--file" : ""}`}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       onContextMenu={(e) => {

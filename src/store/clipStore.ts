@@ -18,7 +18,13 @@ export type ClipInput =
 
 interface ClipStore {
   clips: Clip[];
+  // The "focused" clip — used for context menu, tooltip anchor, single-paste
+  // fallback. Always present in selectedIds when non-null.
   selectedClipId: string | null;
+  // All currently-selected clip ids (order of selection preserved).
+  selectedIds: string[];
+  // Anchor for range (shift) selections — the last non-shift click/arrow.
+  anchorId: string | null;
   searchQuery: string;
   activeFilter: "all" | "favorites" | "pinned";
   activeFolderId: string | null;
@@ -28,11 +34,16 @@ interface ClipStore {
 
   addClip: (input: ClipInput) => Promise<void>;
   removeClip: (id: string) => Promise<void>;
+  removeClips: (ids: string[]) => Promise<void>;
   loadClips: (reset?: boolean) => Promise<void>;
   setSearch: (query: string) => void;
   setFilter: (filter: "all" | "favorites" | "pinned") => void;
   setFolder: (folderId: string | null) => void;
   setSelectedClip: (id: string | null) => void;
+  toggleSelectClip: (id: string) => void;
+  extendSelectionTo: (id: string) => void;
+  selectAll: () => void;
+  clearSelection: () => void;
   setSkipNextEvent: (skip: boolean) => void;
 
   togglePin: (id: string) => Promise<void>;
@@ -91,6 +102,8 @@ function normalize(input: ClipInput): NormalizedInput {
 export const useClipStore = create<ClipStore>((set, get) => ({
   clips: [],
   selectedClipId: null,
+  selectedIds: [],
+  anchorId: null,
   searchQuery: "",
   activeFilter: "all",
   activeFolderId: null,
@@ -136,10 +149,40 @@ export const useClipStore = create<ClipStore>((set, get) => ({
 
   removeClip: async (id: string) => {
     await deleteClip(id);
-    set((state) => ({
-      clips: state.clips.filter((c) => c.id !== id),
-      selectedClipId: state.selectedClipId === id ? null : state.selectedClipId,
-    }));
+    set((state) => {
+      const selectedIds = state.selectedIds.filter((x) => x !== id);
+      return {
+        clips: state.clips.filter((c) => c.id !== id),
+        selectedIds,
+        selectedClipId:
+          state.selectedClipId === id
+            ? selectedIds[selectedIds.length - 1] ?? null
+            : state.selectedClipId,
+        anchorId: state.anchorId === id ? null : state.anchorId,
+      };
+    });
+  },
+
+  removeClips: async (ids: string[]) => {
+    for (const id of ids) {
+      await deleteClip(id);
+    }
+    const toRemove = new Set(ids);
+    set((state) => {
+      const selectedIds = state.selectedIds.filter((x) => !toRemove.has(x));
+      return {
+        clips: state.clips.filter((c) => !toRemove.has(c.id)),
+        selectedIds,
+        selectedClipId:
+          state.selectedClipId && toRemove.has(state.selectedClipId)
+            ? selectedIds[selectedIds.length - 1] ?? null
+            : state.selectedClipId,
+        anchorId:
+          state.anchorId && toRemove.has(state.anchorId)
+            ? null
+            : state.anchorId,
+      };
+    });
   },
 
   loadClips: async (reset = false) => {
@@ -181,7 +224,53 @@ export const useClipStore = create<ClipStore>((set, get) => ({
     get().loadClips(true);
   },
 
-  setSelectedClip: (id) => set({ selectedClipId: id }),
+  setSelectedClip: (id) =>
+    set({
+      selectedClipId: id,
+      selectedIds: id ? [id] : [],
+      anchorId: id,
+    }),
+
+  toggleSelectClip: (id) =>
+    set((state) => {
+      const has = state.selectedIds.includes(id);
+      const selectedIds = has
+        ? state.selectedIds.filter((x) => x !== id)
+        : [...state.selectedIds, id];
+      return {
+        selectedIds,
+        selectedClipId: has
+          ? selectedIds[selectedIds.length - 1] ?? null
+          : id,
+        anchorId: id,
+      };
+    }),
+
+  extendSelectionTo: (id) =>
+    set((state) => {
+      const anchor = state.anchorId ?? state.selectedClipId ?? id;
+      const startIdx = state.clips.findIndex((c) => c.id === anchor);
+      const endIdx = state.clips.findIndex((c) => c.id === id);
+      if (startIdx < 0 || endIdx < 0) return state;
+      const [lo, hi] =
+        startIdx < endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
+      const selectedIds = state.clips.slice(lo, hi + 1).map((c) => c.id);
+      return {
+        selectedIds,
+        selectedClipId: id,
+        anchorId: state.anchorId ?? anchor,
+      };
+    }),
+
+  selectAll: () =>
+    set((state) => ({
+      selectedIds: state.clips.map((c) => c.id),
+      selectedClipId: state.clips[0]?.id ?? null,
+      anchorId: state.clips[0]?.id ?? null,
+    })),
+
+  clearSelection: () =>
+    set({ selectedIds: [], selectedClipId: null, anchorId: null }),
 
   setSkipNextEvent: (skip) => set({ skipNextEvent: skip }),
 

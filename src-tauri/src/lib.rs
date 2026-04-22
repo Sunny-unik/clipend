@@ -106,6 +106,80 @@ fn prepare_text_drop_file(app: tauri::AppHandle, text: String) -> Result<String,
     }
 }
 
+#[cfg(windows)]
+#[tauri::command]
+fn hide_when_cursor_leaves(
+    app: tauri::AppHandle,
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+) -> Result<(), String> {
+    use windows::Win32::Foundation::{HWND, POINT};
+    use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, ShowWindow, SW_HIDE};
+
+    let main_window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "no main window".to_string())?;
+    let main_hwnd = main_window.hwnd().map_err(|e| e.to_string())?;
+    let main_addr = main_hwnd.0 as usize;
+
+    // Also grab the tooltip window's HWND if it exists — we hide it too so
+    // it doesn't linger on top after main disappears.
+    let tooltip_addr = app
+        .get_webview_window("tooltip")
+        .and_then(|w| w.hwnd().ok())
+        .map(|h| h.0 as usize);
+
+    std::thread::spawn(move || {
+        let start = std::time::Instant::now();
+        let main_hwnd = HWND(main_addr as *mut core::ffi::c_void);
+        loop {
+            if start.elapsed() > std::time::Duration::from_secs(30) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+
+            let mut pt = POINT { x: 0, y: 0 };
+            let ok = unsafe { GetCursorPos(&mut pt) }.is_ok();
+            if !ok {
+                continue;
+            }
+
+            if pt.x < left || pt.x > right || pt.y < top || pt.y > bottom {
+                // Restore the previously-focused window FIRST so it becomes
+                // foreground while the native drag is still in progress.
+                // VS Code / browser / editor will internally re-focus the
+                // element that had focus (e.g. the Claude Code input), so
+                // the drop lands in the right place.
+                restore_previous_foreground();
+                unsafe {
+                    let _ = ShowWindow(main_hwnd, SW_HIDE);
+                    if let Some(addr) = tooltip_addr {
+                        let tt = HWND(addr as *mut core::ffi::c_void);
+                        let _ = ShowWindow(tt, SW_HIDE);
+                    }
+                }
+                return;
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+fn hide_when_cursor_leaves(
+    _app: tauri::AppHandle,
+    _left: i32,
+    _top: i32,
+    _right: i32,
+    _bottom: i32,
+) -> Result<(), String> {
+    Ok(())
+}
+
 #[tauri::command]
 fn drag_icon_path(app: tauri::AppHandle) -> Result<String, String> {
     let dir = drag_cache_dir(&app)?;
@@ -149,14 +223,88 @@ fn paste_to_active_window(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(windows)]
+fn previous_foreground() -> &'static std::sync::Mutex<Option<usize>> {
+    static INSTANCE: std::sync::OnceLock<std::sync::Mutex<Option<usize>>> =
+        std::sync::OnceLock::new();
+    INSTANCE.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+#[cfg(windows)]
+fn save_previous_foreground() {
+    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+    let hwnd = unsafe { GetForegroundWindow() };
+    if !hwnd.0.is_null() {
+        if let Ok(mut g) = previous_foreground().lock() {
+            *g = Some(hwnd.0 as usize);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn restore_previous_foreground() {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        keybd_event, SetActiveWindow, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, VK_MENU,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        BringWindowToTop, GetWindowThreadProcessId, SetForegroundWindow,
+    };
+
+    let addr = previous_foreground()
+        .lock()
+        .ok()
+        .and_then(|g| *g);
+    let Some(addr) = addr else { return };
+    if addr == 0 {
+        return;
+    }
+    let target = HWND(addr as *mut core::ffi::c_void);
+
+    unsafe {
+        // Simulate an Alt press/release — Windows requires the calling thread
+        // to "own" a foreground-capable input event before it will let us
+        // transfer foreground to another process. This is a well-known trick
+        // for SetForegroundWindow.
+        keybd_event(VK_MENU.0 as u8, 0, KEYBD_EVENT_FLAGS(0), 0);
+        keybd_event(VK_MENU.0 as u8, 0, KEYEVENTF_KEYUP, 0);
+
+        // Attach our thread input to the target's thread so SetForegroundWindow
+        // isn't rejected by rules about foreground switching.
+        let target_tid = GetWindowThreadProcessId(target, None);
+        let our_tid = GetCurrentThreadId();
+        let attached = target_tid != 0
+            && target_tid != our_tid
+            && AttachThreadInput(our_tid, target_tid, true).as_bool();
+
+        let _ = BringWindowToTop(target);
+        let _ = SetForegroundWindow(target);
+        let _ = SetActiveWindow(target);
+
+        if attached {
+            let _ = AttachThreadInput(our_tid, target_tid, false);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn save_previous_foreground() {}
+#[cfg(not(windows))]
+fn restore_previous_foreground() {}
+
 #[tauri::command]
 fn toggle_window(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
         let visible = window.is_visible().unwrap_or(false);
         let focused = window.is_focused().unwrap_or(false);
         if visible && focused {
+            restore_previous_foreground();
             window.hide().map_err(|e| e.to_string())?;
         } else {
+            // About to steal foreground — remember what we're taking it from so
+            // we can restore it when we hide.
+            save_previous_foreground();
             window.show().map_err(|e| e.to_string())?;
             window.set_focus().map_err(|e| e.to_string())?;
         }
@@ -354,7 +502,8 @@ pub fn run() {
             exit_app,
             paste_to_active_window,
             prepare_text_drop_file,
-            drag_icon_path
+            drag_icon_path,
+            hide_when_cursor_leaves
         ])
         .setup(|app| {
             start_clipboard_monitor(app.handle().clone());
@@ -373,6 +522,7 @@ pub fn run() {
                         tauri::WindowEvent::Focused(false) => hide_all(),
                         tauri::WindowEvent::CloseRequested { api, .. } => {
                             api.prevent_close();
+                            restore_previous_foreground();
                             hide_all();
                         }
                         _ => {}

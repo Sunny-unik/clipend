@@ -23,8 +23,11 @@ export function ClipList() {
   const hasMore = useClipStore((s) => s.hasMore);
   const loadClips = useClipStore((s) => s.loadClips);
   const selectedClipId = useClipStore((s) => s.selectedClipId);
+  const selectedIds = useClipStore((s) => s.selectedIds);
   const editClip = useClipStore((s) => s.editClip);
   const setTitle = useClipStore((s) => s.setTitle);
+
+  const selectedSet = new Set(selectedIds);
 
   const listRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
@@ -84,7 +87,8 @@ export function ClipList() {
             key={clip.id}
             clip={clip}
             index={i}
-            isSelected={clip.id === selectedClipId}
+            isSelected={selectedSet.has(clip.id)}
+            isFocused={clip.id === selectedClipId}
             onContextMenu={handleContextMenu}
           />
         ))}
