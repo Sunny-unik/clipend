@@ -513,6 +513,10 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_drag::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--autostart"]),
+        ))
         .invoke_handler(tauri::generate_handler![
             write_to_clipboard,
             write_files_to_clipboard,
@@ -525,6 +529,15 @@ pub fn run() {
             seed_dev_db
         ])
         .setup(|app| {
+            // If we were launched on system startup via autostart, keep the
+            // main window hidden — the user expects Clipend to sit silently
+            // in the background until Alt+V.
+            if std::env::args().any(|a| a == "--autostart") {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.hide();
+                }
+            }
+
             start_clipboard_monitor(app.handle().clone());
 
             if let Some(window) = app.get_webview_window("main") {

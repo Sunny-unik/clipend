@@ -2,6 +2,11 @@ import { useState, useEffect, useCallback } from "react";
 import { load } from "@tauri-apps/plugin-store";
 import { emit } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import {
+  disable as disableAutostart,
+  enable as enableAutostart,
+  isEnabled as isAutostartEnabled,
+} from "@tauri-apps/plugin-autostart";
 import { getSetting, initDatabase, setSetting } from "../services/database";
 import { SETTINGS_FILENAME } from "../lib/env";
 
@@ -39,6 +44,7 @@ type Field = "toggle" | "delete";
 export function SettingsApp() {
   const [toggle, setToggle] = useState(DEFAULT_TOGGLE);
   const [del, setDel] = useState(DEFAULT_DELETE);
+  const [autostart, setAutostart] = useState(false);
   const [recording, setRecording] = useState<Field | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -74,8 +80,25 @@ export function SettingsApp() {
       }
       if (t) setToggle(t);
       if (d) setDel(d);
+      try {
+        setAutostart(await isAutostartEnabled());
+      } catch (err) {
+        console.warn("autostart check failed:", err);
+      }
     })();
   }, []);
+
+  const handleAutostartChange = async (next: boolean) => {
+    setAutostart(next);
+    try {
+      if (next) await enableAutostart();
+      else await disableAutostart();
+    } catch (err) {
+      console.error("autostart toggle failed:", err);
+      // Revert the UI if the OS call failed.
+      setAutostart(!next);
+    }
+  };
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -144,6 +167,17 @@ export function SettingsApp() {
               onBlur={() => setRecording((r) => (r === "delete" ? null : r))}
             />
           </div>
+        </div>
+        <div className="settings-row">
+          <label className="settings-label">Launch on startup</label>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={autostart}
+              onChange={(e) => handleAutostartChange(e.target.checked)}
+            />
+            <span>Start Clipend in the background when the system boots</span>
+          </label>
         </div>
       </div>
       <div className="settings-footer">
@@ -231,6 +265,21 @@ const settingsCSS = `
   .shortcut-input--recording {
     border-color: #007acc;
     background: #2a2a2a;
+  }
+
+  .settings-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #ccc;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .settings-check input[type="checkbox"] {
+    accent-color: #007acc;
+    width: 14px;
+    height: 14px;
   }
 
   .settings-footer {
