@@ -30,7 +30,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": ["nsis", "appimage"],
     "publisher": "sunny-unik",
     "copyright": "Copyright (c) 2026 sunny-unik",
     "category": "Productivity",

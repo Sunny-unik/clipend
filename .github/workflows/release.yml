@@ -13,7 +13,16 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            bundles: nsis
+          - platform: ubuntu-22.04
+            bundles: appimage
+
+    runs-on: ${{ matrix.platform }}
     permissions:
       contents: read
     steps:
@@ -30,22 +39,35 @@ jobs:
         with:
           workspaces: ./src-tauri
 
+      - name: Install Linux system deps
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libxdo-dev
+
       - name: Install JS deps
         run: bun install
 
-      - name: Build and publish release to public repo
+      - name: Build and publish release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         with:
-          # Publish into the separate public repo
           owner: sunny-unik
           repo: clipend-releases
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}-{1}', github.run_number, github.sha) }}
           releaseName: "Clipend ${{ github.ref_type == 'tag' && github.ref_name || format('build-{0}', github.run_number) }}"
           releaseBody: |
-            Windows installer is below. See the [README](https://github.com/sunny-unik/clipend-releases/blob/main/README.md) for full usage.
+            Installers below for Windows (.exe) and Linux (.AppImage — runs on any modern distro). See the [README](https://github.com/sunny-unik/clipend-releases/blob/main/README.md) for usage.
 
-            > Windows shows "Microsoft Defender SmartScreen prevented an unrecognized app from starting" because the binary isn't code-signed. Click **More info → Run anyway**.
+            > **Windows** shows "Microsoft Defender SmartScreen prevented an unrecognized app from starting" because the binary isn't code-signed. Click **More info → Run anyway**.
+            >
+            > **Linux** — `chmod +x Clipend-*.AppImage && ./Clipend-*.AppImage`
           releaseDraft: true
           prerelease: false
+          args: --bundles ${{ matrix.bundles }}
