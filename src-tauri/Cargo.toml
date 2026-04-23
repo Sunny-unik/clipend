@@ -30,6 +30,8 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 enigo = "0.2"
 tauri-plugin-drag = "2.1.0"
 tauri-plugin-autostart = "2.5.1"
+tauri-plugin-deep-link = "2.4.7"
+tauri-plugin-single-instance = "2.4.1"
 
 [target.'cfg(windows)'.dependencies]
 clipboard-win = "5"

@@ -28,6 +28,13 @@
       }
     }
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["clipend"]
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis", "appimage"],

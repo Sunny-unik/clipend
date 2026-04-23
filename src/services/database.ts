@@ -255,3 +255,8 @@ export async function getAllSettings(): Promise<Record<string, string>> {
   );
   return Object.fromEntries(rows.map((r) => [r.key, r.value]));
 }
+
+export async function removeSetting(key: string): Promise<void> {
+  const database = await getDatabase();
+  await database.execute("DELETE FROM settings WHERE key = $1", [key]);
+}

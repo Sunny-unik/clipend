@@ -508,6 +508,16 @@ fn start_clipboard_monitor(app_handle: tauri::AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // single-instance MUST be registered first so a second invocation of
+        // Clipend (e.g. via a clipend:// URL) forwards to the already-running
+        // process instead of spawning a new one.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_sql::Builder::new().build())
         .plugin(tauri_plugin_store::Builder::new().build())
@@ -536,6 +546,29 @@ pub fn run() {
                 if let Some(win) = app.get_webview_window("main") {
                     let _ = win.hide();
                 }
+            }
+
+            // Deep-link: register the clipend:// scheme on the dev machine
+            // (production registration is handled by the installer), and
+            // forward any incoming URL to the main window for the auth code
+            // to pick up.
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                #[cfg(any(target_os = "windows", target_os = "linux"))]
+                let _ = app.deep_link().register_all();
+
+                let app_handle_for_dl = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    let urls: Vec<String> =
+                        event.urls().into_iter().map(|u| u.to_string()).collect();
+                    let _ = app_handle_for_dl.emit("deep-link", urls);
+                    // Bring the main window forward so the user sees the
+                    // post-sign-in state immediately.
+                    if let Some(window) = app_handle_for_dl.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                });
             }
 
             start_clipboard_monitor(app.handle().clone());

@@ -1,13 +1,16 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { emitTo } from "@tauri-apps/api/event";
 import { useClipStore } from "../store/clipStore";
+import { useAuthStore } from "../store/authStore";
 
 export function OptionsMenu() {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const activeFilter = useClipStore((s) => s.activeFilter);
   const setFilter = useClipStore((s) => s.setFilter);
+  const authStatus = useAuthStore((s) => s.status);
 
   useEffect(() => {
     if (!open) return;
@@ -20,17 +23,20 @@ export function OptionsMenu() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
 
-  const openSettings = async () => {
+  const openSettings = async (tab?: "account") => {
     setOpen(false);
     const existing = await WebviewWindow.getByLabel("settings");
     if (existing) {
       await existing.show();
       await existing.setFocus();
+      // If an Account tab was requested, notify the already-open window.
+      if (tab) await emitTo("settings", "settings-open-tab", tab);
       return;
     }
     const devUrl = import.meta.env.DEV ? "http://localhost:1420" : "";
+    const tabQuery = tab ? `&tab=${tab}` : "";
     new WebviewWindow("settings", {
-      url: `${devUrl}/?window=settings`,
+      url: `${devUrl}/?window=settings${tabQuery}`,
       title: "Options",
       width: 400,
       height: 300,
@@ -81,7 +87,17 @@ export function OptionsMenu() {
             Favorites
           </button>
           <div className="options-divider" />
-          <button className="options-item" onClick={openSettings}>
+          {authStatus === "signed-out" && (
+            <button className="options-item" onClick={() => openSettings("account")}>
+              Sign in...
+            </button>
+          )}
+          {authStatus === "signed-in" && (
+            <button className="options-item" onClick={() => openSettings("account")}>
+              Account...
+            </button>
+          )}
+          <button className="options-item" onClick={() => openSettings()}>
             Options...
           </button>
           <button

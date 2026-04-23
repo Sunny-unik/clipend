@@ -9,9 +9,12 @@ import { useClipboardListener } from "./hooks/useClipboardListener";
 import { useGlobalShortcut, useAppKeyboard } from "./hooks/useKeyboardShortcuts";
 import { useClipStore } from "./store/clipStore";
 import { useSettingsStore } from "./store/settingsStore";
+import { useAuthStore } from "./store/authStore";
 import { initDatabase } from "./services/database";
+import { handleCallbackUrl } from "./services/auth";
 import { Layout } from "./components/Layout";
 import { ClipList } from "./components/ClipList";
+import { LoginOverlay } from "./components/LoginOverlay";
 import { setupTooltipListeners } from "./lib/tooltipController";
 import "./App.css";
 
@@ -41,6 +44,7 @@ async function ensureTooltipWindow() {
 function App() {
   const loadClips = useClipStore((s) => s.loadClips);
   const loadSettings = useSettingsStore((s) => s.loadSettings);
+  const initAuth = useAuthStore((s) => s.init);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -56,6 +60,7 @@ function App() {
       await initDatabase();
       await loadSettings();
       await loadClips(true);
+      initAuth().catch((err) => console.warn("[auth] init failed:", err));
     })();
     ensureTooltipWindow().catch((err) => {
       console.warn("Failed to pre-create tooltip window:", err);
@@ -84,19 +89,47 @@ function App() {
       unlistenSettings = fn;
     });
 
+    // Deep-link: when the browser sends us back after Google sign-in via
+    // clipend://auth-callback?code=..., the Rust side forwards the URL here.
+    let unlistenDeepLink: (() => void) | null = null;
+    listen<string[]>("deep-link", (event) => {
+      for (const url of event.payload) {
+        if (url.startsWith("clipend://auth-callback")) {
+          console.log("[auth] handling callback url:", url);
+          handleCallbackUrl(url)
+            .then(() => console.log("[auth] session installed"))
+            .catch((err) => {
+              console.error("[auth] callback failed:", err);
+              useAuthStore.setState({
+                error: err instanceof Error ? err.message : String(err),
+              });
+            });
+        }
+      }
+    }).then((fn) => {
+      unlistenDeepLink = fn;
+    });
+
     return () => {
       unlisten?.();
       unlistenSettings?.();
+      unlistenDeepLink?.();
     };
-  }, [loadClips, loadSettings]);
+  }, [loadClips, loadSettings, initAuth]);
 
   useClipboardListener();
   useGlobalShortcut();
   useAppKeyboard(searchInputRef);
 
+  const authStatus = useAuthStore((s) => s.status);
+  const loginPromptDismissed = useAuthStore((s) => s.loginPromptDismissed);
+  const showLoginOverlay =
+    authStatus === "signed-out" && !loginPromptDismissed;
+
   return (
     <Layout searchInputRef={searchInputRef}>
       <ClipList />
+      {showLoginOverlay && <LoginOverlay />}
     </Layout>
   );
 }
