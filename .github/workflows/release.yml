@@ -60,6 +60,7 @@ jobs:
         with:
           owner: sunny-unik
           repo: clipend-releases
+          releaseCommitish: master
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}-{1}', github.run_number, github.sha) }}
           releaseName: "Clipend ${{ github.ref_type == 'tag' && github.ref_name || format('build-{0}', github.run_number) }}"
           releaseBody: |
