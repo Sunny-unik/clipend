@@ -511,7 +511,19 @@ pub fn run() {
         // single-instance MUST be registered first so a second invocation of
         // Clipend (e.g. via a clipend:// URL) forwards to the already-running
         // process instead of spawning a new one.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // Windows delivers deep-link URLs as CLI args to a freshly-spawned
+            // process. single-instance short-circuits that launch back to us,
+            // so we have to pull the URL out of `args` ourselves and emit the
+            // same "deep-link" event the frontend already listens for.
+            let urls: Vec<String> = args
+                .iter()
+                .filter(|a| a.starts_with("clipend://"))
+                .cloned()
+                .collect();
+            if !urls.is_empty() {
+                let _ = app.emit("deep-link", &urls);
+            }
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.set_focus();

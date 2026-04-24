@@ -1,5 +1,6 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { emit } from "@tauri-apps/api/event";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { Session, User } from "@supabase/supabase-js";
 import { getSupabase } from "./supabase";
 
@@ -60,6 +61,21 @@ export async function handleCallbackUrl(urlString: string): Promise<void> {
   // We pass the whole Session in the payload because each webview has its
   // own in-memory Supabase client that won't auto-rehydrate from storage.
   await emit(AUTH_CHANGED_EVENT, data.session);
+  // Belt-and-suspenders: close the Settings window if it's open. The window
+  // also has its own listener for AUTH_CHANGED_EVENT but doing it here too
+  // guarantees the UI drops back to the signed-in main panel.
+  try {
+    const settings = await WebviewWindow.getByLabel("settings");
+    if (settings) {
+      setTimeout(() => {
+        settings.close().catch((err) =>
+          console.warn("[auth] failed to close settings window:", err)
+        );
+      }, 300);
+    }
+  } catch (err) {
+    console.warn("[auth] settings lookup failed:", err);
+  }
 }
 
 export async function signOut(): Promise<void> {

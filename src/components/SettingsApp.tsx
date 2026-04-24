@@ -112,11 +112,12 @@ export function SettingsApp() {
     // back on the main Clipend panel with the signed-in state visible.
     let unlistenAuth: (() => void) | null = null;
     listen<unknown>(AUTH_CHANGED_EVENT, (event) => {
+      console.log("[settings] auth-changed", !!event.payload);
       if (event.payload) {
-        // A small delay gives the authStore time to settle so the close
-        // doesn't race with the state broadcast.
         setTimeout(() => {
-          getCurrentWebviewWindow().close().catch(() => {});
+          getCurrentWebviewWindow()
+            .close()
+            .catch((err) => console.warn("[settings] close failed:", err));
         }, 250);
       }
     }).then((fn) => {

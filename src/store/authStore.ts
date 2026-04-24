@@ -75,6 +75,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
       // the local session.
       const supabaseForSync = getSupabase();
       listen<Session | null>(AUTH_CHANGED_EVENT, async (event) => {
+        console.log("[auth] cross-window event received", !!event.payload);
         if (!supabaseForSync) return;
         try {
           if (event.payload) {
@@ -86,6 +87,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
             await supabaseForSync.auth.signOut({ scope: "local" });
           }
           const session = await getSession();
+          console.log("[auth] cross-window session updated", !!session);
           useAuthStore.getState()._setSession(session);
         } catch (err) {
           console.warn("[auth] cross-window sync failed:", err);
