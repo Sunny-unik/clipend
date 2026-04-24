@@ -11,8 +11,51 @@ on:
     tags:
       - "v*"
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      release_id: ${{ steps.create.outputs.id }}
+      tag_name: ${{ steps.vars.outputs.tag_name }}
+    steps:
+      - name: Compute tag/release names
+        id: vars
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "tag_name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "release_name=Clipend ${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_name=v${{ github.run_number }}-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "release_name=Clipend build-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create draft release on clipend-releases
+        id: create
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        with:
+          repository: sunny-unik/clipend-releases
+          target_commitish: master
+          tag_name: ${{ steps.vars.outputs.tag_name }}
+          name: ${{ steps.vars.outputs.release_name }}
+          draft: true
+          prerelease: false
+          body: |
+            Installers below for Windows (.exe) and Linux (.AppImage — runs on any modern distro). See the [README](https://github.com/sunny-unik/clipend-releases/blob/main/README.md) for usage.
+
+            > **Windows** shows "Microsoft Defender SmartScreen prevented an unrecognized app from starting" because the binary isn't code-signed. Click **More info → Run anyway**.
+            >
+            > **Linux** — `chmod +x Clipend-*.AppImage && ./Clipend-*.AppImage`
+
   build:
+    needs: create-release
     strategy:
       fail-fast: false
       matrix:
@@ -53,22 +96,12 @@ jobs:
       - name: Install JS deps
         run: bun install
 
-      - name: Build and publish release
+      - name: Build and upload to release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         with:
           owner: sunny-unik
           repo: clipend-releases
-          releaseCommitish: master
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}-{1}', github.run_number, github.sha) }}
-          releaseName: "Clipend ${{ github.ref_type == 'tag' && github.ref_name || format('build-{0}', github.run_number) }}"
-          releaseBody: |
-            Installers below for Windows (.exe) and Linux (.AppImage — runs on any modern distro). See the [README](https://github.com/sunny-unik/clipend-releases/blob/main/README.md) for usage.
-
-            > **Windows** shows "Microsoft Defender SmartScreen prevented an unrecognized app from starting" because the binary isn't code-signed. Click **More info → Run anyway**.
-            >
-            > **Linux** — `chmod +x Clipend-*.AppImage && ./Clipend-*.AppImage`
-          releaseDraft: true
-          prerelease: false
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           args: --bundles ${{ matrix.bundles }}
