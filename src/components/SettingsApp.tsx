@@ -118,18 +118,17 @@ export function SettingsApp() {
       unlistenTab = fn;
     });
 
-    // If the user just signed in from this window, close it so they land
-    // back on the main Clipend panel with the signed-in state visible.
+    // Close on either sign-in (so the user lands back on the main panel
+    // with the signed-in state visible) or sign-out (so the main panel can
+    // show the LoginOverlay instead of stranding the user on Shortcuts).
     let unlistenAuth: (() => void) | null = null;
     listen<unknown>(AUTH_CHANGED_EVENT, (event) => {
       console.log("[settings] auth-changed", !!event.payload);
-      if (event.payload) {
-        setTimeout(() => {
-          getCurrentWebviewWindow()
-            .close()
-            .catch((err) => console.warn("[settings] close failed:", err));
-        }, 250);
-      }
+      setTimeout(() => {
+        getCurrentWebviewWindow()
+          .close()
+          .catch((err) => console.warn("[settings] close failed:", err));
+      }, 250);
     }).then((fn) => {
       unlistenAuth = fn;
     });

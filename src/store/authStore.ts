@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Session, User } from "@supabase/supabase-js";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
   AUTH_CHANGED_EVENT,
   getSession,
@@ -10,6 +11,27 @@ import {
 } from "../services/auth";
 import { getSupabase, isSupabaseConfigured } from "../services/supabase";
 import { getSetting, setSetting } from "../services/database";
+import { startSync, stopSync } from "../services/sync";
+
+/**
+ * Sync runs from a single webview only. We pick the main window because it's
+ * always alive while the app is running, whereas Settings/Tooltip come and go.
+ * Other webviews still get the auth state updates via AUTH_CHANGED_EVENT and
+ * can read clips locally — they just don't drive the network ticker.
+ */
+function isSyncOwnerWindow(): boolean {
+  try {
+    return getCurrentWebviewWindow().label === "main";
+  } catch {
+    return false;
+  }
+}
+
+function maybeStartSync(session: Session | null): void {
+  if (!isSyncOwnerWindow()) return;
+  if (session?.user?.id) startSync(session.user.id);
+  else stopSync();
+}
 
 const LOGIN_PROMPT_DISMISSED_KEY = "loginPromptDismissed";
 
@@ -66,6 +88,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
         // already been through the flow on this (or another) device.
         loginPromptDismissed: dismissed || !!session,
       });
+      maybeStartSync(session);
       onAuthStateChange((session) => {
         useAuthStore.getState()._setSession(session);
       });
@@ -121,7 +144,16 @@ export const useAuthStore = create<AuthStore>((set) => ({
     set({ error: null });
     try {
       await signOut();
-      set({ status: "signed-out", user: null, session: null });
+      // Treat explicit sign-out as "back to fresh-install state" — undo the
+      // dismissed flag so the LoginOverlay reappears on the main panel.
+      await setSetting(LOGIN_PROMPT_DISMISSED_KEY, "0");
+      set({
+        status: "signed-out",
+        user: null,
+        session: null,
+        loginPromptDismissed: false,
+      });
+      maybeStartSync(null);
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
     }
@@ -137,7 +169,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
     set({ loginPromptDismissed: false, error: null });
   },
 
-  _setSession: (session) =>
+  _setSession: (session) => {
     set((prev) => ({
       session,
       user: session?.user ?? null,
@@ -145,5 +177,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
       // A successful auth flow implicitly satisfies the first-run prompt;
       // on sign-out we leave the previous value alone.
       loginPromptDismissed: session ? true : prev.loginPromptDismissed,
-    })),
+    }));
+    maybeStartSync(session);
+  },
 }));

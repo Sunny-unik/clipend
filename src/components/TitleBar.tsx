@@ -1,9 +1,17 @@
-import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getCurrentWebviewWindow, WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 export function TitleBar() {
   const handleHide = async () => {
-    await invoke("toggle_window");
+    // Explicit X click is unambiguously "hide" — calling toggle_window made
+    // this miss when focus had just slipped (overlay open, dropdown active),
+    // because the toggle then took the show-and-focus branch.
+    try {
+      await getCurrentWebviewWindow().hide();
+      const tooltip = await WebviewWindow.getByLabel("tooltip");
+      if (tooltip) await tooltip.hide();
+    } catch (err) {
+      console.warn("[titlebar] hide failed:", err);
+    }
   };
 
   const handleMouseDown = async (e: React.MouseEvent) => {

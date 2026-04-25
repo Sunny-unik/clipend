@@ -12,6 +12,7 @@ import { useSettingsStore } from "./store/settingsStore";
 import { useAuthStore } from "./store/authStore";
 import { initDatabase } from "./services/database";
 import { handleCallbackUrl } from "./services/auth";
+import { requestSync } from "./services/sync";
 import { Layout } from "./components/Layout";
 import { ClipList } from "./components/ClipList";
 import { LoginOverlay } from "./components/LoginOverlay";
@@ -85,6 +86,10 @@ function App() {
     let unlistenSettings: (() => void) | null = null;
     listen("settings-updated", () => {
       loadSettings();
+      // Settings window writes to SQLite directly, so its setSetting calls
+      // bypass our store's requestSync. Trigger one here from the main
+      // window (the sync owner) so the change pushes promptly.
+      requestSync();
     }).then((fn) => {
       unlistenSettings = fn;
     });

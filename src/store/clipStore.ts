@@ -10,6 +10,7 @@ import {
   type GetClipsOptions,
 } from "../services/database";
 import { hashContent } from "../utils/hash";
+import { deleteRemote, requestSync } from "../services/sync";
 
 export type ClipInput =
   | { kind: "text"; text: string; html?: string | null }
@@ -123,6 +124,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
       set((state) => ({
         clips: [updatedClip, ...state.clips.filter((c) => c.id !== existing.id)],
       }));
+      requestSync();
       return;
     }
 
@@ -145,6 +147,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
 
     await insertClip(clip);
     set((state) => ({ clips: [clip, ...state.clips] }));
+    requestSync();
   },
 
   removeClip: async (id: string) => {
@@ -161,6 +164,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
         anchorId: state.anchorId === id ? null : state.anchorId,
       };
     });
+    deleteRemote(id);
   },
 
   removeClips: async (ids: string[]) => {
@@ -183,6 +187,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
             : state.anchorId,
       };
     });
+    for (const id of ids) deleteRemote(id);
   },
 
   loadClips: async (reset = false) => {
@@ -290,18 +295,21 @@ export const useClipStore = create<ClipStore>((set, get) => ({
       });
       return { clips: updated };
     });
+    requestSync();
   },
 
   toggleFavorite: async (id) => {
     const clip = get().clips.find((c) => c.id === id);
     if (!clip) return;
     const next = !clip.isFavorite;
-    await updateClip(id, { isFavorite: next });
+    const now = Date.now();
+    await updateClip(id, { isFavorite: next, updatedAt: now });
     set((state) => ({
       clips: state.clips.map((c) =>
-        c.id === id ? { ...c, isFavorite: next } : c
+        c.id === id ? { ...c, isFavorite: next, updatedAt: now } : c
       ),
     }));
+    requestSync();
   },
 
   duplicateClip: async (id) => {
@@ -317,6 +325,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
     };
     await insertClip(newClip);
     set((state) => ({ clips: [newClip, ...state.clips] }));
+    requestSync();
   },
 
   editClip: async (id, content) => {
@@ -342,12 +351,17 @@ export const useClipStore = create<ClipStore>((set, get) => ({
           : c
       ),
     }));
+    requestSync();
   },
 
   setTitle: async (id, title) => {
-    await updateClip(id, { title });
+    const now = Date.now();
+    await updateClip(id, { title, updatedAt: now });
     set((state) => ({
-      clips: state.clips.map((c) => (c.id === id ? { ...c, title } : c)),
+      clips: state.clips.map((c) =>
+        c.id === id ? { ...c, title, updatedAt: now } : c
+      ),
     }));
+    requestSync();
   },
 }));

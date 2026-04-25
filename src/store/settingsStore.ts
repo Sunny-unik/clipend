@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { load } from "@tauri-apps/plugin-store";
 import { getSetting, setSetting } from "../services/database";
 import { SETTINGS_FILENAME } from "../lib/env";
+import { requestSync } from "../services/sync";
 
 interface SettingsStore {
   toggleShortcut: string;
@@ -60,10 +61,12 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   setToggleShortcut: async (shortcut: string) => {
     await setSetting(KEY_TOGGLE, shortcut);
     set({ toggleShortcut: shortcut });
+    requestSync();
   },
 
   setDeleteClipShortcut: async (shortcut: string) => {
     await setSetting(KEY_DELETE, shortcut);
     set({ deleteClipShortcut: shortcut });
+    requestSync();
   },
 }));

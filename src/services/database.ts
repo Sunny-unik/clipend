@@ -3,6 +3,13 @@ import type { Clip, ClipRow } from "../types/clip";
 import { clipFromRow } from "../types/clip";
 import { DB_FILENAME } from "../lib/env";
 
+export interface SettingRow {
+  key: string;
+  value: string;
+  updated_at: number;
+  synced_at: number | null;
+}
+
 let db: Database | null = null;
 
 const SCHEMA_SQL = `
@@ -52,6 +59,10 @@ const MIGRATIONS: string[] = [
   "ALTER TABLE clips ADD COLUMN file_path TEXT",
   "ALTER TABLE clips ADD COLUMN file_name TEXT",
   "ALTER TABLE clips ADD COLUMN html_content TEXT",
+  // Phase-2 sync bookkeeping. synced_at NULL or < updated_at means "dirty".
+  "ALTER TABLE clips ADD COLUMN synced_at INTEGER",
+  "ALTER TABLE clips ADD COLUMN remote_image_url TEXT",
+  "ALTER TABLE settings ADD COLUMN synced_at INTEGER",
 ];
 
 async function runMigrations(database: Database): Promise<void> {
@@ -259,4 +270,156 @@ export async function getAllSettings(): Promise<Record<string, string>> {
 export async function removeSetting(key: string): Promise<void> {
   const database = await getDatabase();
   await database.execute("DELETE FROM settings WHERE key = $1", [key]);
+}
+
+/* ---------- sync bookkeeping (Phase 2) ---------- */
+
+/**
+ * Clips with no synced_at, or whose updated_at is newer than synced_at —
+ * i.e. the rows that need to be pushed to Supabase on the next tick.
+ */
+export async function getUnsyncedClips(): Promise<Clip[]> {
+  const database = await getDatabase();
+  const rows = await database.select<ClipRow[]>(
+    "SELECT * FROM clips WHERE synced_at IS NULL OR updated_at > synced_at"
+  );
+  return rows.map(clipFromRow);
+}
+
+export async function getUnsyncedSettings(
+  keys: string[]
+): Promise<SettingRow[]> {
+  if (keys.length === 0) return [];
+  const database = await getDatabase();
+  const placeholders = keys.map((_, i) => `$${i + 1}`).join(",");
+  return database.select<SettingRow[]>(
+    `SELECT key, value, updated_at, synced_at FROM settings
+     WHERE key IN (${placeholders})
+       AND (synced_at IS NULL OR updated_at > synced_at)`,
+    keys
+  );
+}
+
+export async function markClipSynced(id: string, syncedAt: number): Promise<void> {
+  const database = await getDatabase();
+  await database.execute(
+    "UPDATE clips SET synced_at = $1 WHERE id = $2",
+    [syncedAt, id]
+  );
+}
+
+export async function markSettingSynced(
+  key: string,
+  syncedAt: number
+): Promise<void> {
+  const database = await getDatabase();
+  await database.execute(
+    "UPDATE settings SET synced_at = $1 WHERE key = $2",
+    [syncedAt, key]
+  );
+}
+
+/**
+ * Apply a clip received from Supabase. Last-write-wins by updated_at: if the
+ * local row is newer (or equal), nothing happens — the local edit will be
+ * pushed up on the next tick. Otherwise the row is overwritten and marked
+ * already-synced so we don't immediately push it back.
+ */
+export async function upsertClipFromRemote(remote: {
+  id: string;
+  content: string;
+  html_content: string | null;
+  title: string | null;
+  content_hash: string;
+  clip_type: string;
+  file_path: string | null;
+  file_name: string | null;
+  remote_image_url: string | null;
+  is_pinned: number;
+  is_favorite: number;
+  created_at: number;
+  updated_at: number;
+}): Promise<"applied" | "skipped"> {
+  const database = await getDatabase();
+  const existing = await database.select<{ updated_at: number }[]>(
+    "SELECT updated_at FROM clips WHERE id = $1",
+    [remote.id]
+  );
+  if (existing.length > 0 && existing[0].updated_at >= remote.updated_at) {
+    return "skipped";
+  }
+  await database.execute(
+    `INSERT INTO clips
+       (id, content, html_content, title, content_hash, clip_type,
+        file_path, file_name, remote_image_url, is_pinned, is_favorite,
+        folder_id, created_at, updated_at, synced_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NULL,$12,$13,$13)
+     ON CONFLICT(id) DO UPDATE SET
+       content = excluded.content,
+       html_content = excluded.html_content,
+       title = excluded.title,
+       content_hash = excluded.content_hash,
+       clip_type = excluded.clip_type,
+       file_path = excluded.file_path,
+       file_name = excluded.file_name,
+       remote_image_url = excluded.remote_image_url,
+       is_pinned = excluded.is_pinned,
+       is_favorite = excluded.is_favorite,
+       updated_at = excluded.updated_at,
+       synced_at = excluded.synced_at`,
+    [
+      remote.id,
+      remote.content,
+      remote.html_content,
+      remote.title,
+      remote.content_hash,
+      remote.clip_type,
+      remote.file_path,
+      remote.file_name,
+      remote.remote_image_url,
+      remote.is_pinned,
+      remote.is_favorite,
+      remote.created_at,
+      remote.updated_at,
+    ]
+  );
+  return "applied";
+}
+
+/**
+ * Apply a setting received from Supabase. LWW by updated_at; on apply the
+ * row is marked already-synced so the next push tick doesn't bounce it back.
+ */
+export async function upsertSettingFromRemote(
+  key: string,
+  value: string,
+  updatedAt: number
+): Promise<"applied" | "skipped"> {
+  const database = await getDatabase();
+  const existing = await database.select<{ updated_at: number }[]>(
+    "SELECT updated_at FROM settings WHERE key = $1",
+    [key]
+  );
+  if (existing.length > 0 && existing[0].updated_at >= updatedAt) {
+    return "skipped";
+  }
+  await database.execute(
+    `INSERT INTO settings (key, value, updated_at, synced_at)
+     VALUES ($1, $2, $3, $3)
+     ON CONFLICT(key) DO UPDATE SET
+       value = excluded.value,
+       updated_at = excluded.updated_at,
+       synced_at = excluded.synced_at`,
+    [key, value, updatedAt]
+  );
+  return "applied";
+}
+
+export async function clipExists(id: string): Promise<boolean> {
+  const database = await getDatabase();
+  const rows = await database.select<{ id: string }[]>(
+    "SELECT id FROM clips WHERE id = $1",
+    [id]
+  );
+  return rows.length > 0;
 }
