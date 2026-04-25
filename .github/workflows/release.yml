@@ -128,6 +128,12 @@ jobs:
           # explicit token: input on softprops/action-gh-release because
           # that action's token: input has a default of github.token, which
           # silently overrides any env var.
+          #
+          # Vite inlines VITE_* vars at build time. Without these the
+          # binary ships with isSupabaseConfigured()=false → auth status
+          # "disabled" → no Sign-in / Account UI.
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         with:
           owner: sunny-unik
           repo: clipend-releases
