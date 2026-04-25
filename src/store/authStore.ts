@@ -27,6 +27,8 @@ interface AuthStore {
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   dismissLoginPrompt: () => Promise<void>;
+  /** Re-show the first-run sign-in overlay (e.g. from the ⋯ menu). */
+  showLoginPrompt: () => Promise<void>;
   /** Internal: called by the auth-state-change subscription. */
   _setSession: (session: Session | null) => void;
 }
@@ -128,6 +130,11 @@ export const useAuthStore = create<AuthStore>((set) => ({
   dismissLoginPrompt: async () => {
     await setSetting(LOGIN_PROMPT_DISMISSED_KEY, "1");
     set({ loginPromptDismissed: true });
+  },
+
+  showLoginPrompt: async () => {
+    await setSetting(LOGIN_PROMPT_DISMISSED_KEY, "0");
+    set({ loginPromptDismissed: false, error: null });
   },
 
   _setSession: (session) =>

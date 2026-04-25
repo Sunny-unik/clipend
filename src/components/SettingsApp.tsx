@@ -58,6 +58,16 @@ export function SettingsApp() {
   const [recording, setRecording] = useState<Field | null>(null);
   const [saved, setSaved] = useState(false);
   const initAuth = useAuthStore((s) => s.init);
+  const authStatus = useAuthStore((s) => s.status);
+  const showAccountTab = authStatus === "signed-in";
+
+  // Account tab is only meaningful when signed in. Wait until auth has
+  // resolved (status leaves "loading") before falling back — otherwise we
+  // race the initial ?tab=account render and kick the user to Shortcuts.
+  useEffect(() => {
+    if (authStatus === "loading") return;
+    if (tab === "account" && !showAccountTab) setTab("shortcuts");
+  }, [tab, showAccountTab, authStatus]);
 
   useEffect(() => {
     (async () => {
@@ -187,12 +197,14 @@ export function SettingsApp() {
         >
           Keyboard Shortcuts
         </div>
-        <div
-          className={`settings-tab${tab === "account" ? " settings-tab--active" : ""}`}
-          onClick={() => setTab("account")}
-        >
-          Account
-        </div>
+        {showAccountTab && (
+          <div
+            className={`settings-tab${tab === "account" ? " settings-tab--active" : ""}`}
+            onClick={() => setTab("account")}
+          >
+            Account
+          </div>
+        )}
       </div>
       <div className="settings-body">
         {tab === "shortcuts" && (

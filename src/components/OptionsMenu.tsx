@@ -11,6 +11,7 @@ export function OptionsMenu() {
   const activeFilter = useClipStore((s) => s.activeFilter);
   const setFilter = useClipStore((s) => s.setFilter);
   const authStatus = useAuthStore((s) => s.status);
+  const showLoginPrompt = useAuthStore((s) => s.showLoginPrompt);
 
   useEffect(() => {
     if (!open) return;
@@ -88,7 +89,13 @@ export function OptionsMenu() {
           </button>
           <div className="options-divider" />
           {authStatus === "signed-out" && (
-            <button className="options-item" onClick={() => openSettings("account")}>
+            <button
+              className="options-item"
+              onClick={() => {
+                setOpen(false);
+                showLoginPrompt();
+              }}
+            >
               Sign in...
             </button>
           )}
