@@ -175,6 +175,20 @@ body {
   line-height: 1;
 }
 
+.clip-row-unsynced {
+  flex-shrink: 0;
+  margin-left: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
+.clip-row-unsynced:hover {
+  opacity: 1;
+}
+
 .clip-row-text {
   flex: 1;
   overflow: hidden;

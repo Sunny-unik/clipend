@@ -141,6 +141,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
       isPinned: false,
       isFavorite: false,
       folderId: null,
+      syncedAt: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -320,6 +321,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
       ...clip,
       id: nanoid(),
       isPinned: false,
+      syncedAt: null,
       createdAt: now,
       updatedAt: now,
     };

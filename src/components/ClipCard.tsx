@@ -4,6 +4,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Clip } from "../types/clip";
 import { isImageFileName } from "../types/clip";
 import { useClipStore } from "../store/clipStore";
+import { useAuthStore } from "../store/authStore";
 import {
   cancelPendingHide,
   isTooltipVisible,
@@ -11,6 +12,10 @@ import {
   showTooltip,
 } from "../lib/tooltipController";
 import { dragClips, pasteClips } from "../lib/clipActions";
+
+function isClipUnsynced(clip: Clip): boolean {
+  return clip.syncedAt === null || clip.syncedAt < clip.updatedAt;
+}
 
 const HOVER_DELAY_MS = 400;
 
@@ -27,6 +32,10 @@ export function ClipCard({ clip, index, isSelected, isFocused, onContextMenu }: 
   const setSelectedClip = useClipStore((s) => s.setSelectedClip);
   const toggleSelectClip = useClipStore((s) => s.toggleSelectClip);
   const extendSelectionTo = useClipStore((s) => s.extendSelectionTo);
+  // Only show the unsynced badge when the user is signed in. Signed-out
+  // and "disabled" (no Supabase) users have no cloud to sync to, so the
+  // indicator would be permanent noise.
+  const showSyncBadge = useAuthStore((s) => s.status === "signed-in");
   const rowRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -167,7 +176,32 @@ export function ClipCard({ clip, index, isSelected, isFocused, onContextMenu }: 
       ) : (
         <FilePreview clip={clip} />
       )}
+      {showSyncBadge && isClipUnsynced(clip) && <UnsyncedBadge />}
     </div>
+  );
+}
+
+function UnsyncedBadge() {
+  return (
+    <span
+      className="clip-row-unsynced"
+      title="Not yet synced — only on this device"
+      aria-label="Not yet synced"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        width="14"
+        height="14"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M17.5 19a4.5 4.5 0 0 0 .8-8.93A6.5 6.5 0 0 0 6.34 7.5" />
+        <path d="M2 2l20 20" />
+      </svg>
+    </span>
   );
 }
 

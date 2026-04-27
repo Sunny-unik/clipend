@@ -116,8 +116,15 @@ async function syncOnce(): Promise<void> {
   sync.setStatus("syncing");
   broadcastSyncState();
   try {
-    await pushPending(userId);
+    const pushedClips = await pushPending(userId);
     await pullAll(userId);
+    // pullAll already reloads clips when it applied a remote change,
+    // but a successful push without any remote update needs its own
+    // reload so the UI's per-clip syncedAt picks up the new value
+    // and the unsynced badge clears.
+    if (pushedClips > 0) {
+      await useClipStore.getState().loadClips(true);
+    }
     sync.setStatus("idle");
     sync.setLastPullAt(Date.now());
     sync.setError(null);
@@ -171,10 +178,10 @@ function clipToRemote(c: Clip, userId: string) {
   };
 }
 
-export async function pushPending(userIdArg?: string): Promise<void> {
+export async function pushPending(userIdArg?: string): Promise<number> {
   const supabase = getSupabase();
   const userId = userIdArg ?? currentUserId;
-  if (!supabase || !userId) return;
+  if (!supabase || !userId) return 0;
 
   const clips = await getUnsyncedClips();
   if (clips.length > 0) {
@@ -201,6 +208,8 @@ export async function pushPending(userIdArg?: string): Promise<void> {
       await markSettingSynced(key, updatedAt);
     }
   }
+
+  return clips.length;
 }
 
 export async function pullAll(userIdArg?: string): Promise<void> {

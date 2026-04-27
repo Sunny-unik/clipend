@@ -14,6 +14,9 @@ export interface Clip {
   folderId: string | null;
   createdAt: number;
   updatedAt: number;
+  /** When this clip was last successfully pushed to / received from the
+   * cloud. null = never synced. < updatedAt = local edits are pending. */
+  syncedAt: number | null;
 }
 
 export interface Folder {
@@ -46,6 +49,7 @@ export interface ClipRow {
   folder_id: string | null;
   created_at: number;
   updated_at: number;
+  synced_at: number | null;
 }
 
 const IMAGE_EXTENSIONS = new Set([
@@ -88,5 +92,6 @@ export function clipFromRow(row: ClipRow): Clip {
     folderId: row.folder_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    syncedAt: row.synced_at,
   };
 }
