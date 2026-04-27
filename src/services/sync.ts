@@ -35,6 +35,7 @@ function broadcastSyncState(): void {
 import {
   clipExists,
   getDatabase,
+  getSettingsMap,
   getUnsyncedClips,
   getUnsyncedSettings,
   markClipSynced,
@@ -185,18 +186,19 @@ export async function pushPending(userIdArg?: string): Promise<void> {
     }
   }
 
-  const settings = await getUnsyncedSettings(SYNCED_SETTING_KEY_LIST);
-  if (settings.length > 0) {
-    const payload = settings.map((s) => ({
-      user_id: userId,
-      key: s.key,
-      value: s.value,
-      updated_at: s.updated_at,
-    }));
-    const { error } = await supabase.from("settings").upsert(payload);
+  const dirty = await getUnsyncedSettings(SYNCED_SETTING_KEY_LIST);
+  if (dirty.length > 0) {
+    // Always send the full whitelisted blob so the cloud row is a
+    // complete snapshot — partial blobs would lose any whitelisted key
+    // that isn't currently dirty.
+    const value = await getSettingsMap(SYNCED_SETTING_KEY_LIST);
+    const updatedAt = Math.max(...dirty.map((d) => d.updated_at));
+    const { error } = await supabase
+      .from("settings")
+      .upsert({ user_id: userId, value, updated_at: updatedAt });
     if (error) throw new Error(`push settings: ${error.message}`);
-    for (const s of settings) {
-      await markSettingSynced(s.key, s.updated_at);
+    for (const key of SYNCED_SETTING_KEY_LIST) {
+      await markSettingSynced(key, updatedAt);
     }
   }
 }
@@ -208,7 +210,11 @@ export async function pullAll(userIdArg?: string): Promise<void> {
 
   const [clipsRes, settingsRes, deletesRes] = await Promise.all([
     supabase.from("clips").select("*").eq("user_id", userId),
-    supabase.from("settings").select("*").eq("user_id", userId),
+    supabase
+      .from("settings")
+      .select("value, updated_at")
+      .eq("user_id", userId)
+      .maybeSingle(),
     supabase.from("deleted_clips").select("clip_id, deleted_at").eq("user_id", userId),
   ]);
   if (clipsRes.error) throw new Error(`pull clips: ${clipsRes.error.message}`);
@@ -235,15 +241,20 @@ export async function pullAll(userIdArg?: string): Promise<void> {
     if (result === "applied") clipsTouched = true;
   }
 
+  // Settings is now a single JSONB blob per user; iterate the keys
+  // inside the value object and apply each through per-key LWW. Filter
+  // by the whitelist on the way in so a malicious or stale cloud row
+  // can't push a key we'd never deliberately sync (e.g. sb.auth).
   let settingsTouched = false;
-  for (const row of settingsRes.data ?? []) {
-    if (!isSettingSyncable(row.key)) continue;
-    const result = await upsertSettingFromRemote(
-      row.key,
-      row.value,
-      row.updated_at
-    );
-    if (result === "applied") settingsTouched = true;
+  if (settingsRes.data) {
+    const blob = (settingsRes.data.value ?? {}) as Record<string, unknown>;
+    const updatedAt = settingsRes.data.updated_at as number;
+    for (const [key, value] of Object.entries(blob)) {
+      if (!isSettingSyncable(key)) continue;
+      if (typeof value !== "string") continue;
+      const result = await upsertSettingFromRemote(key, value, updatedAt);
+      if (result === "applied") settingsTouched = true;
+    }
   }
 
   // Apply deletion log: hard-delete local rows whose tombstone says they're

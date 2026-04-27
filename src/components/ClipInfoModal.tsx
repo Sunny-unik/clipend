@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import type { Clip } from "../types/clip";
+import { useUiStore } from "../store/uiStore";
 
 interface ClipInfoModalProps {
   clip: Clip;
@@ -37,6 +38,12 @@ function formatRelative(timestamp: number): string {
 }
 
 export function ClipInfoModal({ clip, onClose }: ClipInfoModalProps) {
+  useEffect(() => {
+    const { pushModal, popModal } = useUiStore.getState();
+    pushModal();
+    return () => popModal();
+  }, []);
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();

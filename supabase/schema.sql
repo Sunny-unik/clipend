@@ -27,12 +27,20 @@ drop policy if exists "own clips" on public.clips;
 create policy "own clips" on public.clips
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
-create table if not exists public.settings (
-  user_id uuid not null references auth.users(id) on delete cascade,
-  key text not null,
-  value text not null,
-  updated_at bigint not null,
-  primary key (user_id, key)
+-- Settings are stored as a single JSONB blob per user. Clipend is a
+-- single-user app (multi-device for one person, not collaborative), so
+-- per-key conflict resolution would be theatre — the rare case where
+-- the same user changes the same setting on two devices simultaneously
+-- is not worth the schema overhead. The blob LWW by updated_at is fine.
+--
+-- Re-running this on a project that has the OLD per-key table will
+-- replace it; data in that table is dropped. There are no production
+-- users yet, so this is safe.
+drop table if exists public.settings;
+create table public.settings (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  value jsonb not null default '{}'::jsonb,
+  updated_at bigint not null
 );
 alter table public.settings enable row level security;
 drop policy if exists "own settings" on public.settings;

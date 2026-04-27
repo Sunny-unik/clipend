@@ -3,6 +3,7 @@ import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
 import { invoke } from "@tauri-apps/api/core";
 import { useClipStore } from "../store/clipStore";
 import { useSettingsStore } from "../store/settingsStore";
+import { isModalOpen } from "../store/uiStore";
 import { pasteClips } from "../lib/clipActions";
 
 function matchesShortcut(e: KeyboardEvent, shortcut: string): boolean {
@@ -53,6 +54,15 @@ export function useAppKeyboard(searchInputRef: React.RefObject<HTMLInputElement 
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       const isSearchFocused = target === searchInputRef.current;
+      // When any modal is open, let the modal own Esc/Enter and any
+      // typing inside its inputs. The global "Esc hides window" and
+      // "Enter pastes selected clip" handlers would otherwise fight
+      // the modal — Esc would close the modal AND hide the window,
+      // and Enter in a textarea would paste a stale selection.
+      // Read from the UI store rather than querying the DOM, since
+      // an HMR-leaked .modal-overlay node can outlive its React tree
+      // and falsely block all shortcuts.
+      const modalOpen = isModalOpen();
 
       // Ctrl+F to focus search
       if (e.key === "f" && (e.ctrlKey || e.metaKey)) {
@@ -68,8 +78,10 @@ export function useAppKeyboard(searchInputRef: React.RefObject<HTMLInputElement 
         return;
       }
 
-      // Escape: always hide window (single press)
+      // Escape: always hide window (single press) — except when a
+      // modal is open; the modal's own handler handles it.
       if (e.key === "Escape") {
+        if (modalOpen) return;
         e.preventDefault();
         invoke("toggle_window");
         return;
@@ -100,8 +112,11 @@ export function useAppKeyboard(searchInputRef: React.RefObject<HTMLInputElement 
       }
 
       // Enter: copy + paste selected clip(s) (works from search box too).
-      // Multi-select pastes as multiple files via pasteClips.
+      // Multi-select pastes as multiple files via pasteClips. Skipped
+      // when a modal is open so Enter (or Ctrl+Enter) behaves naturally
+      // inside its inputs.
       if (e.key === "Enter") {
+        if (modalOpen) return;
         const state = useClipStore.getState();
         const ids = new Set(state.selectedIds);
         const selected = state.clips.filter((c) => ids.has(c.id));
@@ -116,7 +131,10 @@ export function useAppKeyboard(searchInputRef: React.RefObject<HTMLInputElement 
 
       // Configurable delete clip shortcut. If the shortcut has no modifiers
       // and search is focused, we let the input handle the key (so Backspace/
-      // Delete still edit the query instead of removing the clip).
+      // Delete still edit the query instead of removing the clip). Same
+      // applies when a modal is open — Backspace/Delete should edit the
+      // textarea, not remove the clip we're describing.
+      if (modalOpen) return;
       if (matchesShortcut(e, deleteShortcut)) {
         const hasModifier = e.ctrlKey || e.altKey || e.metaKey || e.shiftKey;
         if (!isSearchFocused || hasModifier) {

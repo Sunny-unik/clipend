@@ -24,30 +24,6 @@ jobs:
       release_id: ${{ steps.create.outputs.id }}
       tag_name: ${{ steps.vars.outputs.tag_name }}
     steps:
-      - name: Debug RELEASES_TOKEN (length + sha256 only — never the value)
-        env:
-          T: ${{ secrets.RELEASES_TOKEN }}
-        run: |
-          if [ -z "$T" ]; then
-            echo "RELEASES_TOKEN is EMPTY"
-            exit 1
-          fi
-          echo "length: ${#T}"
-          echo "sha256: $(printf %s "$T" | sha256sum | cut -d' ' -f1)"
-          # Hit /user with the token to confirm it's a valid credential at all.
-          # 200 = token works, 401 = bad credential, 403 = valid but blocked.
-          code=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer $T" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/user)
-          echo "GET /user → HTTP $code"
-          # And the target repo.
-          code=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer $T" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/sunny-unik/clipend-releases)
-          echo "GET /repos/sunny-unik/clipend-releases → HTTP $code"
-
       - name: Compute tag/release names
         id: vars
         run: |

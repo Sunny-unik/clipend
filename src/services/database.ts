@@ -300,6 +300,24 @@ export async function getUnsyncedSettings(
   );
 }
 
+/**
+ * Read multiple settings as a key→value map. Used to build the JSON blob
+ * we push to Supabase — we always send all whitelisted keys together so
+ * the cloud row is a complete snapshot, never a partial.
+ */
+export async function getSettingsMap(
+  keys: string[]
+): Promise<Record<string, string>> {
+  if (keys.length === 0) return {};
+  const database = await getDatabase();
+  const placeholders = keys.map((_, i) => `$${i + 1}`).join(",");
+  const rows = await database.select<{ key: string; value: string }[]>(
+    `SELECT key, value FROM settings WHERE key IN (${placeholders})`,
+    keys
+  );
+  return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+}
+
 export async function markClipSynced(id: string, syncedAt: number): Promise<void> {
   const database = await getDatabase();
   await database.execute(

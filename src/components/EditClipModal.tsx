@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import type { Clip } from "../types/clip";
+import { useUiStore } from "../store/uiStore";
 
 interface EditClipModalProps {
   clip: Clip;
@@ -12,6 +13,12 @@ export function EditClipModal({ clip, mode, onClose, onSave }: EditClipModalProp
   const initialValue = mode === "content" ? clip.content : clip.title || "";
   const [value, setValue] = useState(initialValue);
   const inputRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null);
+
+  useEffect(() => {
+    const { pushModal, popModal } = useUiStore.getState();
+    pushModal();
+    return () => popModal();
+  }, []);
 
   useEffect(() => {
     inputRef.current?.focus();

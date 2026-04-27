@@ -475,6 +475,27 @@ body {
   background: var(--bg-hover);
 }
 
+.add-clip-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  font-weight: 400;
+}
+
+.add-clip-btn:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
 .options-dropdown {
   position: absolute;
   bottom: 100%;
