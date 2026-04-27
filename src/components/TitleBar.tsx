@@ -14,27 +14,15 @@ export function TitleBar() {
     }
   };
 
-  const handleMouseDown = async (e: React.MouseEvent) => {
-    if (e.button !== 0) return;
-    const target = e.target as HTMLElement;
-    if (target.closest("button")) return;
-    e.preventDefault();
-    console.log("[titlebar] mousedown — calling startDragging");
-    try {
-      await getCurrentWebviewWindow().startDragging();
-      console.log("[titlebar] startDragging resolved");
-    } catch (err) {
-      console.error("[titlebar] startDragging failed:", err);
-    }
-  };
-
+  // data-tauri-drag-region triggers Tauri's native drag pipeline:
+  //   Windows: ReleaseCapture + WM_NCLBUTTONDOWN(HTCAPTION)
+  //   Linux:   gdk_window_begin_move_drag
+  //   macOS:   NSWindow performWindowDragWithEvent
+  // Same UX everywhere, no IPC roundtrip, no JS handler. The focus blip
+  // that previously hid the window mid-drag is handled in Rust now.
   return (
-    <div
-      className="title-bar"
-      data-tauri-drag-region=""
-      onMouseDown={handleMouseDown}
-    >
-      <span className="title-bar-title" data-tauri-drag-region="">
+    <div className="title-bar" data-tauri-drag-region>
+      <span className="title-bar-title" data-tauri-drag-region>
         Clipend
         {import.meta.env.DEV && <span className="title-bar-env">dev</span>}
       </span>

@@ -588,22 +588,62 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 let window_clone = window.clone();
                 let app_handle = app.handle().clone();
-                window.on_window_event(move |event| {
-                    let hide_all = || {
+                // Generation counter so a focus-back cancels a pending hide.
+                // Without this, the click-outside-to-dismiss behavior fires
+                // during the brief Focused(false) the OS produces while
+                // entering its modal drag loop on a frameless window — the
+                // window vanishes before the drag can register any motion.
+                // Behaves the same on Linux/macOS: the focus blip there is
+                // either absent or instantaneous, so the grace period is a
+                // no-op rather than a regression.
+                let blur_gen = std::sync::Arc::new(
+                    std::sync::atomic::AtomicU64::new(0),
+                );
+                window.on_window_event(move |event| match event {
+                    tauri::WindowEvent::Focused(false) => {
+                        let my_gen = blur_gen
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                            + 1;
+                        let blur_gen = blur_gen.clone();
+                        let win = window_clone.clone();
+                        let app = app_handle.clone();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_millis(180));
+                            // Newer focus event invalidated this hide.
+                            if blur_gen.load(std::sync::atomic::Ordering::SeqCst)
+                                != my_gen
+                            {
+                                return;
+                            }
+                            // Focus came back during the grace period — drag
+                            // ended, or the user clicked back in. Don't hide.
+                            if win.is_focused().unwrap_or(false) {
+                                return;
+                            }
+                            let _ = win.hide();
+                            if let Some(tt) = app.get_webview_window("tooltip") {
+                                let _ = tt.hide();
+                            }
+                        });
+                    }
+                    tauri::WindowEvent::Focused(true) => {
+                        // Bumping the generation invalidates any in-flight
+                        // hide closure — order matters: this MUST run before
+                        // the closure's load() check, which is why we do it
+                        // synchronously in the event handler.
+                        blur_gen
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        restore_previous_foreground();
                         let _ = window_clone.hide();
-                        if let Some(tt) = app_handle.get_webview_window("tooltip") {
+                        if let Some(tt) = app_handle.get_webview_window("tooltip")
+                        {
                             let _ = tt.hide();
                         }
-                    };
-                    match event {
-                        tauri::WindowEvent::Focused(false) => hide_all(),
-                        tauri::WindowEvent::CloseRequested { api, .. } => {
-                            api.prevent_close();
-                            restore_previous_foreground();
-                            hide_all();
-                        }
-                        _ => {}
                     }
+                    _ => {}
                 });
             }
 
