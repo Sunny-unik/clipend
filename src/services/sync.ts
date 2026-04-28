@@ -5,24 +5,24 @@ import { useClipStore } from "../store/clipStore";
 import { useSettingsStore } from "../store/settingsStore";
 import { useSyncStore, type SyncStatus } from "../store/syncStore";
 import { getSupabase } from "./supabase";
-
-const FILES_BUCKET = "clips-files";
+import {
+  deleteFile as driveDeleteFile,
+  downloadFile as driveDownloadFile,
+  isDriveConfigured,
+  isDriveConnected,
+  uploadFile as driveUploadFile,
+} from "./googleDrive";
 
 /**
- * Per-file ceiling for cloud sync. Anything larger stays local-only.
- * Keeps the unsynced badge on the clip so the user knows it didn't go
- * up. Tune this if you want — it's a soft cap on egress cost more
- * than a technical limit.
+ * Per-file ceiling. The user pays their own Drive quota so this is a
+ * UX cap (avoid uploading a 4 GB ISO they accidentally copied) more
+ * than a cost cap. Tune if you want.
  */
 const MAX_SYNCED_FILE_BYTES = 25 * 1024 * 1024;
 
-/** Path inside the bucket: clips-files/{user_id}/{clip_id} */
-function clipObjectPath(userId: string, clipId: string): string {
-  return `${userId}/${clipId}`;
-}
-
-/** Crude content-type guess from extension. Used only as a hint to
- * the storage server; clients re-derive on download from file_name. */
+/** Crude content-type guess from extension. Drive infers its own type
+ * from the bytes too, but the hint matters when the Drive UI renders
+ * thumbnails / previews. */
 function guessContentType(fileName: string | null): string {
   if (!fileName) return "application/octet-stream";
   const ext = fileName.toLowerCase().split(".").pop() ?? "";
@@ -270,43 +270,38 @@ function hasSyncableBlob(c: Clip): boolean {
 }
 
 /**
- * Generate a short-lived signed URL the user can copy/share. The
- * bucket is private so getPublicUrl-style URLs don't actually work
- * unauthenticated — the storage SDK has to mint a token URL on the
- * fly. Returns null if the clip has no uploaded blob, the user is
- * signed out, or the request fails.
+ * Returns the user-facing Drive URL for the clip's blob. Same format
+ * Drive itself uses for "Open in new tab" — no API call needed since
+ * the file id is already in the row.
  */
-export async function createClipSignedUrl(
-  clipId: string,
-  expiresInSeconds = 3600
-): Promise<string | null> {
-  const supabase = getSupabase();
-  const userId = currentUserId;
-  if (!supabase || !userId) return null;
-  const objectPath = clipObjectPath(userId, clipId);
-  const { data, error } = await supabase.storage
-    .from(FILES_BUCKET)
-    .createSignedUrl(objectPath, expiresInSeconds);
-  if (error || !data?.signedUrl) {
-    console.warn(`[sync] sign url for ${objectPath} failed:`, error?.message);
-    return null;
-  }
-  return data.signedUrl;
+export async function createClipSignedUrl(clipId: string): Promise<string | null> {
+  if (!isDriveConfigured()) return null;
+  if (!(await isDriveConnected())) return null;
+  const db = await getDatabase();
+  const rows = await db.select<{ remote_image_url: string | null }[]>(
+    "SELECT remote_image_url FROM clips WHERE id = $1",
+    [clipId]
+  );
+  const fileId = rows[0]?.remote_image_url;
+  if (!fileId) return null;
+  return `https://drive.google.com/file/d/${fileId}/view`;
 }
 
 /**
  * Upload a local clip blob (image, copied file, anything with a
- * file_path) to Supabase Storage. Mutates the clip's remoteImageUrl in
- * place so the subsequent upsert payload carries it. The column is
- * named remote_image_url for legacy reasons but holds the URL for any
- * synced blob, not just images.
+ * file_path) to the user's own Google Drive. Mutates the clip's
+ * remoteImageUrl in place to hold the Drive file id so the subsequent
+ * upsert payload carries it. The column kept its remote_image_url
+ * name for legacy reasons but now stores a Drive file id, not a URL.
  */
-async function uploadClipFile(c: Clip, userId: string): Promise<void> {
-  const supabase = getSupabase();
-  if (!supabase) return;
+async function uploadClipFile(c: Clip): Promise<void> {
   if (!hasSyncableBlob(c)) return;
-  // Already uploaded — nothing to do.
-  if (c.remoteImageUrl) return;
+  if (c.remoteImageUrl) return; // already uploaded
+  if (!isDriveConfigured() || !(await isDriveConnected())) {
+    // Drive isn't set up on this device — leave the clip dirty so
+    // the unsynced badge persists, and skip the upload.
+    return;
+  }
 
   const bytes = await invoke<number[]>("read_clip_file_bytes", {
     path: c.filePath as string,
@@ -317,30 +312,27 @@ async function uploadClipFile(c: Clip, userId: string): Promise<void> {
     );
   }
   const contentType = guessContentType(c.fileName);
-  const blob = new Blob([new Uint8Array(bytes)], { type: contentType });
-  const objectPath = clipObjectPath(userId, c.id);
-  const { error } = await supabase.storage
-    .from(FILES_BUCKET)
-    .upload(objectPath, blob, { contentType, upsert: true });
-  if (error) throw new Error(`upload ${objectPath}: ${error.message}`);
-
-  const { data } = supabase.storage.from(FILES_BUCKET).getPublicUrl(objectPath);
-  c.remoteImageUrl = data.publicUrl;
+  const fileId = await driveUploadFile(
+    c.fileName ?? c.id,
+    new Uint8Array(bytes),
+    contentType
+  );
+  c.remoteImageUrl = fileId;
 }
 
 /**
  * Best-effort: ensure the clip's blob exists locally. If we have a
- * remote URL but no local file (different device, cache cleared,
- * etc.), download from Storage and write into our cache dir, then
+ * Drive file id but no local file (different device, cache cleared,
+ * etc.), download from Drive and write into our cache dir, then
  * update file_path.
  */
-async function downloadClipFileIfMissing(
-  c: Clip,
-  userId: string
-): Promise<void> {
-  const supabase = getSupabase();
-  if (!supabase) return;
+async function downloadClipFileIfMissing(c: Clip): Promise<void> {
   if ((c.clipType !== "image" && c.clipType !== "file") || !c.remoteImageUrl) {
+    return;
+  }
+  if (!isDriveConfigured() || !(await isDriveConnected())) {
+    // Drive not connected on this device. Card will render with a
+    // broken thumbnail until the user connects.
     return;
   }
 
@@ -351,21 +343,18 @@ async function downloadClipFileIfMissing(
     if (exists) return;
   }
 
-  const objectPath = clipObjectPath(userId, c.id);
-  const { data, error } = await supabase.storage
-    .from(FILES_BUCKET)
-    .download(objectPath);
-  if (error || !data) {
-    // Don't throw — a single missing blob shouldn't fail the whole
-    // pull. Card renders broken; next tick retries.
-    console.warn(`[sync] download ${objectPath} failed:`, error?.message);
+  let bytes: Uint8Array;
+  try {
+    bytes = await driveDownloadFile(c.remoteImageUrl);
+  } catch (err) {
+    // 404 / token revoked / network blip — log + retry next tick.
+    console.warn(`[sync] drive download ${c.remoteImageUrl} failed:`, err);
     return;
   }
-  const buf = await data.arrayBuffer();
   const localPath = await invoke<string>("save_clip_file_bytes", {
     clipId: c.id,
     fileName: c.fileName ?? "blob",
-    bytes: Array.from(new Uint8Array(buf)),
+    bytes: Array.from(bytes),
   });
   await setClipLocalFilePath(c.id, localPath);
 }
@@ -385,7 +374,7 @@ export async function pushPending(userIdArg?: string): Promise<number> {
     for (const c of clips) {
       if (hasSyncableBlob(c) && !c.remoteImageUrl) {
         try {
-          await uploadClipFile(c, userId);
+          await uploadClipFile(c);
           if (c.remoteImageUrl) {
             await setClipRemoteImageUrl(c.id, c.remoteImageUrl, c.updatedAt);
           }
@@ -503,7 +492,7 @@ export async function pullAll(userIdArg?: string): Promise<void> {
         syncedAt: row.updated_at,
         remoteImageUrl: row.remote_image_url,
       };
-      await downloadClipFileIfMissing(synthetic, userId);
+      await downloadClipFileIfMissing(synthetic);
       // downloadClipFileIfMissing may have updated file_path; mark
       // touched so the store reloads and the card finds the new path.
       clipsTouched = true;
@@ -555,25 +544,24 @@ export async function pullAll(userIdArg?: string): Promise<void> {
  */
 export async function deleteRemote(
   clipId: string,
-  hasRemoteBlob = false
+  driveFileId?: string | null
 ): Promise<void> {
   const supabase = getSupabase();
   const userId = currentUserId;
   if (!supabase || !userId) return;
 
   try {
-    // Storage cleanup first. If this fails, log + continue: orphaned
-    // bytes are bad but stalling the row delete is worse (we'd keep
-    // re-pulling the clip on every tick).
-    if (hasRemoteBlob) {
-      const objectPath = clipObjectPath(userId, clipId);
-      const { error: storageErr } = await supabase.storage
-        .from(FILES_BUCKET)
-        .remove([objectPath]);
-      if (storageErr) {
+    // Drive cleanup first. Errors are logged + continued — orphaned
+    // bytes are bad but stalling the metadata delete is worse (we'd
+    // keep pulling the clip on every tick). hard delete (deleteFile
+    // skips the Drive trash) so the user's quota frees immediately.
+    if (driveFileId && isDriveConfigured() && (await isDriveConnected())) {
+      try {
+        await driveDeleteFile(driveFileId);
+      } catch (err) {
         console.warn(
-          `[sync] storage delete ${objectPath} failed:`,
-          storageErr.message
+          `[sync] drive delete ${driveFileId} failed:`,
+          err instanceof Error ? err.message : err
         );
       }
     }

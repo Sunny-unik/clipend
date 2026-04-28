@@ -136,6 +136,83 @@ fn clip_file_exists(path: String) -> bool {
     !path.is_empty() && std::path::Path::new(&path).exists()
 }
 
+/// One-shot loopback HTTP server for the Google Drive OAuth callback.
+/// Google's "Desktop application" OAuth clients require a loopback
+/// redirect (custom URI schemes are no longer accepted for new desktop
+/// clients), so we open a TcpListener on a random port, wait for the
+/// browser to hit it after the user consents, parse the code from the
+/// query string, emit it to the JS side as `drive-oauth-callback`, and
+/// shut down. The whole listener lives for one request — typically a
+/// few seconds.
+///
+/// Returns the port the listener bound to so JS can build the
+/// redirect_uri before opening the auth URL.
+#[tauri::command]
+fn start_drive_oauth_listener(app: tauri::AppHandle) -> Result<u16, String> {
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .map_err(|e| format!("bind oauth listener: {}", e))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| format!("local_addr: {}", e))?
+        .port();
+
+    std::thread::spawn(move || {
+        // Single accept; the OAuth flow only needs one redirect.
+        let (mut stream, _) = match listener.accept() {
+            Ok(p) => p,
+            Err(e) => {
+                let _ = app.emit(
+                    "drive-oauth-callback",
+                    format!("error://accept-failed?msg={}", e),
+                );
+                return;
+            }
+        };
+
+        // Read just the request line: `GET /?code=... HTTP/1.1`.
+        let mut reader = BufReader::new(&stream);
+        let mut request_line = String::new();
+        if reader.read_line(&mut request_line).is_err() {
+            return;
+        }
+        // Path is the middle whitespace-separated token. Build the
+        // full URL relative to the loopback host so JS can use the
+        // standard URL parser on it.
+        let path = request_line
+            .split_whitespace()
+            .nth(1)
+            .unwrap_or("/")
+            .to_string();
+        let full_url = format!("http://127.0.0.1:{}{}", port, path);
+
+        // Reply with a friendly close-this-tab page before notifying
+        // JS, so the user's browser confirms success before our window
+        // takes focus.
+        let body =
+            "<!doctype html><meta charset=utf-8><title>Clipend</title>\
+             <style>body{font-family:system-ui;background:#1e1e1e;color:#eee;\
+             display:flex;align-items:center;justify-content:center;\
+             height:100vh;margin:0}div{text-align:center}</style>\
+             <div><h2>Drive connected ✓</h2>\
+             <p>You can close this tab and return to Clipend.</p></div>";
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\
+             Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        let _ = stream.flush();
+
+        let _ = app.emit("drive-oauth-callback", full_url);
+    });
+
+    Ok(port)
+}
+
 /// One-shot: copy the production clip DB over to the dev DB filename if the
 /// dev DB doesn't exist yet. Lets developers start with realistic data.
 #[tauri::command]
@@ -606,7 +683,8 @@ pub fn run() {
             seed_dev_db,
             read_clip_file_bytes,
             save_clip_file_bytes,
-            clip_file_exists
+            clip_file_exists,
+            start_drive_oauth_listener
         ])
         .setup(|app| {
             // If we were launched on system startup via autostart, keep the

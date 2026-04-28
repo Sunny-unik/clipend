@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { listen, emit } from "@tauri-apps/api/event";
 import { useAuthStore } from "../store/authStore";
 import { useSyncStore, type SyncStatus } from "../store/syncStore";
+import { useDriveStore } from "../store/driveStore";
 import {
   SYNC_STATE_EVENT,
   retrySync,
@@ -46,6 +47,12 @@ export function AccountTab() {
   const lastPullAt = useSyncStore((s) => s.lastPullAt);
   const pendingCount = useSyncStore((s) => s.pendingCount);
   const syncError = useSyncStore((s) => s.error);
+  const driveStatus = useDriveStore((s) => s.status);
+  const driveError = useDriveStore((s) => s.error);
+  const driveBusy = useDriveStore((s) => s.busy);
+  const initDrive = useDriveStore((s) => s.init);
+  const driveConnect = useDriveStore((s) => s.connect);
+  const driveDisconnect = useDriveStore((s) => s.disconnect);
 
   // Sync ticker runs only in the main window. Mirror its broadcast state
   // into this webview's syncStore so the UI here stays accurate.
@@ -64,6 +71,12 @@ export function AccountTab() {
       unlisten?.();
     };
   }, []);
+
+  // Refresh Drive connection state on tab open — the user may have
+  // revoked Clipend in their Google account between sessions.
+  useEffect(() => {
+    initDrive().catch((err) => console.warn("[drive] init failed:", err));
+  }, [initDrive]);
 
   if (status === "disabled") {
     return (
@@ -150,6 +163,13 @@ export function AccountTab() {
               : "Sync now"}
         </button>
       </div>
+      <DriveSection
+        status={driveStatus}
+        error={driveError}
+        busy={driveBusy}
+        onConnect={driveConnect}
+        onDisconnect={driveDisconnect}
+      />
       <button
         className="settings-btn"
         style={{ alignSelf: "flex-start" }}
@@ -161,6 +181,77 @@ export function AccountTab() {
       {syncError && syncStatus !== "syncing" && (
         <p className="settings-error">Sync: {syncError}</p>
       )}
+    </div>
+  );
+}
+
+interface DriveSectionProps {
+  status: "loading" | "connected" | "disconnected" | "disabled";
+  error: string | null;
+  busy: boolean;
+  onConnect: () => void;
+  onDisconnect: () => void;
+}
+
+function DriveSection({
+  status,
+  error,
+  busy,
+  onConnect,
+  onDisconnect,
+}: DriveSectionProps) {
+  if (status === "disabled") {
+    // Build wasn't configured with a Drive client id. Don't show the
+    // section at all — the user can't act on it anyway, and it'd just
+    // be noise.
+    return null;
+  }
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        paddingTop: 6,
+        borderTop: "1px solid #333",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <p className="settings-note" style={{ margin: 0, flex: 1 }}>
+          Google Drive — files (images, copied files) sync to your own Drive.
+        </p>
+        {status === "loading" && (
+          <span className="settings-note">Checking…</span>
+        )}
+        {status === "disconnected" && (
+          <button
+            className="settings-btn"
+            disabled={busy}
+            onClick={onConnect}
+          >
+            {busy ? "Connecting…" : "Connect Drive"}
+          </button>
+        )}
+        {status === "connected" && (
+          <>
+            <span
+              className="settings-note"
+              style={{ margin: 0, color: "#4ec9b0" }}
+            >
+              Connected
+            </span>
+            <button
+              className="settings-btn"
+              disabled={busy}
+              onClick={onDisconnect}
+            >
+              {busy ? "…" : "Disconnect"}
+            </button>
+          </>
+        )}
+      </div>
+      {error && <p className="settings-error">Drive: {error}</p>}
     </div>
   );
 }

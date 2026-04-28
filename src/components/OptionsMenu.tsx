@@ -50,8 +50,8 @@ export function OptionsMenu() {
     new WebviewWindow("settings", {
       url: `${devUrl}/?window=settings${tabQuery}`,
       title: "Options",
-      width: 400,
-      height: 300,
+      width: 420,
+      height: 420,
       decorations: true,
       resizable: false,
       center: true,

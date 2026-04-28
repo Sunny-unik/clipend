@@ -153,10 +153,11 @@ export const useClipStore = create<ClipStore>((set, get) => ({
   },
 
   removeClip: async (id: string) => {
-    // Capture the clip's remoteImageUrl BEFORE it leaves local state
-    // so we know whether to also wipe the Storage blob.
+    // Capture the clip's Drive file id (stored in remoteImageUrl)
+    // BEFORE it leaves local state so deleteRemote can wipe the
+    // Drive object too.
     const clip = get().clips.find((c) => c.id === id);
-    const hasBlob = !!clip?.remoteImageUrl;
+    const driveFileId = clip?.remoteImageUrl ?? null;
     await deleteClip(id);
     set((state) => {
       const selectedIds = state.selectedIds.filter((x) => x !== id);
@@ -170,16 +171,17 @@ export const useClipStore = create<ClipStore>((set, get) => ({
         anchorId: state.anchorId === id ? null : state.anchorId,
       };
     });
-    deleteRemote(id, hasBlob);
+    deleteRemote(id, driveFileId);
   },
 
   removeClips: async (ids: string[]) => {
     const idSet = new Set(ids);
-    const blobBacked = new Set(
-      get()
-        .clips.filter((c) => idSet.has(c.id) && !!c.remoteImageUrl)
-        .map((c) => c.id)
-    );
+    const driveIds = new Map<string, string>();
+    for (const c of get().clips) {
+      if (idSet.has(c.id) && c.remoteImageUrl) {
+        driveIds.set(c.id, c.remoteImageUrl);
+      }
+    }
     for (const id of ids) {
       await deleteClip(id);
     }
@@ -198,7 +200,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
             : state.anchorId,
       };
     });
-    for (const id of ids) deleteRemote(id, blobBacked.has(id));
+    for (const id of ids) deleteRemote(id, driveIds.get(id) ?? null);
   },
 
   loadClips: async (reset = false) => {
