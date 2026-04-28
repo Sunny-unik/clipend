@@ -13,6 +13,10 @@ import { useAuthStore } from "./store/authStore";
 import { initDatabase } from "./services/database";
 import { handleCallbackUrl } from "./services/auth";
 import { requestSync, retrySync } from "./services/sync";
+import {
+  startRetentionTicker,
+  stopRetentionTicker,
+} from "./lib/retention";
 import { Layout } from "./components/Layout";
 import { ClipList } from "./components/ClipList";
 import { LoginOverlay } from "./components/LoginOverlay";
@@ -62,6 +66,9 @@ function App() {
       await loadSettings();
       await loadClips(true);
       initAuth().catch((err) => console.warn("[auth] init failed:", err));
+      // Auto-delete clips older than 7 days (pinned/favorites kept).
+      // Sweeps once now and every 6h while the app is open.
+      startRetentionTicker();
     })();
     ensureTooltipWindow().catch((err) => {
       console.warn("Failed to pre-create tooltip window:", err);
@@ -125,6 +132,7 @@ function App() {
     });
 
     return () => {
+      stopRetentionTicker();
       unlisten?.();
       unlistenSettings?.();
       unlistenRetry?.();

@@ -547,16 +547,37 @@ export async function pullAll(userIdArg?: string): Promise<void> {
 
 /**
  * Mark a clip as deleted on the server. Inserts a tombstone in
- * deleted_clips (so other devices learn about the delete) and removes the
- * row from public.clips (so it doesn't pull back next tick). Best-effort —
- * a network failure here just means the delete propagates on a later tick.
+ * deleted_clips (so other devices learn about the delete), removes the
+ * row from public.clips (so it doesn't pull back next tick), AND
+ * removes the Storage blob if the clip had one (so we don't leak
+ * bytes in the bucket). Best-effort — a network failure here just
+ * means the delete propagates on a later tick.
  */
-export async function deleteRemote(clipId: string): Promise<void> {
+export async function deleteRemote(
+  clipId: string,
+  hasRemoteBlob = false
+): Promise<void> {
   const supabase = getSupabase();
   const userId = currentUserId;
   if (!supabase || !userId) return;
 
   try {
+    // Storage cleanup first. If this fails, log + continue: orphaned
+    // bytes are bad but stalling the row delete is worse (we'd keep
+    // re-pulling the clip on every tick).
+    if (hasRemoteBlob) {
+      const objectPath = clipObjectPath(userId, clipId);
+      const { error: storageErr } = await supabase.storage
+        .from(FILES_BUCKET)
+        .remove([objectPath]);
+      if (storageErr) {
+        console.warn(
+          `[sync] storage delete ${objectPath} failed:`,
+          storageErr.message
+        );
+      }
+    }
+
     const tombstone = {
       user_id: userId,
       clip_id: clipId,
