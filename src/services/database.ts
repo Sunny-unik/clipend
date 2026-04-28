@@ -441,3 +441,34 @@ export async function clipExists(id: string): Promise<boolean> {
   );
   return rows.length > 0;
 }
+
+/**
+ * Set the Supabase Storage URL for an image clip after a successful
+ * upload. Bumps synced_at so the row isn't immediately re-pushed.
+ */
+export async function setClipRemoteImageUrl(
+  id: string,
+  url: string,
+  syncedAt: number
+): Promise<void> {
+  const database = await getDatabase();
+  await database.execute(
+    "UPDATE clips SET remote_image_url = $1, synced_at = $2 WHERE id = $3",
+    [url, syncedAt, id]
+  );
+}
+
+/**
+ * Update the local file_path for a clip after we've downloaded its
+ * remote image into the on-disk cache dir.
+ */
+export async function setClipLocalFilePath(
+  id: string,
+  filePath: string
+): Promise<void> {
+  const database = await getDatabase();
+  await database.execute(
+    "UPDATE clips SET file_path = $1 WHERE id = $2",
+    [filePath, id]
+  );
+}

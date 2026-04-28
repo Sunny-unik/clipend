@@ -1,6 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import type { Clip } from "../types/clip";
 import { useUiStore } from "../store/uiStore";
+import { createClipSignedUrl } from "../services/sync";
 
 interface ClipInfoModalProps {
   clip: Clip;
@@ -51,6 +53,48 @@ export function ClipInfoModal({ clip, onClose }: ClipInfoModalProps) {
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
+
+  // Mint a fresh signed URL on open. Bucket is private, so a raw
+  // public URL wouldn't actually work — the SDK has to issue a
+  // tokenised URL each time. Default expiry is 1h, plenty for
+  // copy-paste-and-open use.
+  const [signedUrl, setSignedUrl] = useState<string | null>(null);
+  const [signedUrlState, setSignedUrlState] = useState<
+    "idle" | "loading" | "error"
+  >("idle");
+  useEffect(() => {
+    if (!clip.remoteImageUrl) return;
+    let cancelled = false;
+    setSignedUrlState("loading");
+    createClipSignedUrl(clip.id)
+      .then((url) => {
+        if (cancelled) return;
+        if (url) {
+          setSignedUrl(url);
+          setSignedUrlState("idle");
+        } else {
+          setSignedUrlState("error");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSignedUrlState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clip.id, clip.remoteImageUrl]);
+
+  const [copied, setCopied] = useState(false);
+  const copyUrl = async () => {
+    if (!signedUrl) return;
+    try {
+      await invoke("write_to_clipboard", { text: signedUrl, html: null });
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.warn("[info] copy url failed:", err);
+    }
+  };
 
   const isText = clip.clipType === "text";
   const sizeBytes = isText ? new TextEncoder().encode(clip.content).length : 0;
@@ -127,6 +171,39 @@ export function ClipInfoModal({ clip, onClose }: ClipInfoModalProps) {
             <div className="info-value info-mono info-hash" title={clip.contentHash}>
               {clip.contentHash.slice(0, 16)}…
             </div>
+
+            {clip.remoteImageUrl && (
+              <>
+                <div className="info-label">Cloud URL</div>
+                <div
+                  className="info-value info-mono info-hash"
+                  title={signedUrl ?? undefined}
+                >
+                  {signedUrlState === "loading" && (
+                    <span className="info-muted">Signing…</span>
+                  )}
+                  {signedUrlState === "error" && (
+                    <span className="info-muted">Failed to sign URL</span>
+                  )}
+                  {signedUrl && (
+                    <>
+                      <span>{signedUrl.slice(0, 48)}…</span>
+                      <button
+                        className="modal-btn"
+                        style={{
+                          marginLeft: 8,
+                          padding: "1px 8px",
+                          fontSize: 11,
+                        }}
+                        onClick={copyUrl}
+                      >
+                        {copied ? "Copied" : "Copy"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
         <div className="modal-footer">

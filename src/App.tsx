@@ -12,7 +12,7 @@ import { useSettingsStore } from "./store/settingsStore";
 import { useAuthStore } from "./store/authStore";
 import { initDatabase } from "./services/database";
 import { handleCallbackUrl } from "./services/auth";
-import { requestSync } from "./services/sync";
+import { requestSync, retrySync } from "./services/sync";
 import { Layout } from "./components/Layout";
 import { ClipList } from "./components/ClipList";
 import { LoginOverlay } from "./components/LoginOverlay";
@@ -94,6 +94,15 @@ function App() {
       unlistenSettings = fn;
     });
 
+    // The Settings webview's Retry button fires this — the actual sync
+    // ticker lives only here in the main window.
+    let unlistenRetry: (() => void) | null = null;
+    listen("clipend:sync-retry", () => {
+      retrySync();
+    }).then((fn) => {
+      unlistenRetry = fn;
+    });
+
     // Deep-link: when the browser sends us back after Google sign-in via
     // clipend://auth-callback?code=..., the Rust side forwards the URL here.
     let unlistenDeepLink: (() => void) | null = null;
@@ -118,6 +127,7 @@ function App() {
     return () => {
       unlisten?.();
       unlistenSettings?.();
+      unlistenRetry?.();
       unlistenDeepLink?.();
     };
   }, [loadClips, loadSettings, initAuth]);

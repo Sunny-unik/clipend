@@ -81,6 +81,61 @@ fn exit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+/// Read raw bytes of any local clip file (image, document, archive,
+/// whatever) so the JS sync layer can upload it to Supabase Storage.
+/// Done in Rust rather than via plugin-fs so it works regardless of
+/// frontend FS-permission scoping.
+#[tauri::command]
+fn read_clip_file_bytes(path: String) -> Result<Vec<u8>, String> {
+    fs::read(&path).map_err(|e| format!("read {}: {}", path, e))
+}
+
+/// Write a downloaded clip file into the per-user clip cache dir and
+/// return its absolute path so the row's file_path can be updated.
+/// The original file name (from the clip row) is preserved so the
+/// receiving app sees the right extension when this clip is pasted
+/// as a file.
+#[tauri::command]
+fn save_clip_file_bytes(
+    app: tauri::AppHandle,
+    clip_id: String,
+    file_name: String,
+    bytes: Vec<u8>,
+) -> Result<String, String> {
+    let dir = images_dir(&app).ok_or_else(|| "cache dir unavailable".to_string())?;
+    // Sanitize: nanoid uses URL-safe alphabet, but refuse path
+    // separators / parent traversal just in case clip_id ever changes
+    // shape, and strip the same from the user-supplied file_name.
+    if clip_id.contains('/') || clip_id.contains('\\') || clip_id.contains("..") {
+        return Err("invalid clip id".into());
+    }
+    let safe_name = sanitize_file_name(&file_name);
+    let path = dir.join(format!("synced_{}_{}", clip_id, safe_name));
+    fs::write(&path, &bytes).map_err(|e| format!("write {}: {}", path.display(), e))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+fn sanitize_file_name(name: &str) -> String {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return "blob".to_string();
+    }
+    // Keep only the basename: strip any path-separator segments the
+    // caller may have included by accident.
+    let base = std::path::Path::new(trimmed)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("blob");
+    base.chars()
+        .map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') { '_' } else { c })
+        .collect()
+}
+
+#[tauri::command]
+fn clip_file_exists(path: String) -> bool {
+    !path.is_empty() && std::path::Path::new(&path).exists()
+}
+
 /// One-shot: copy the production clip DB over to the dev DB filename if the
 /// dev DB doesn't exist yet. Lets developers start with realistic data.
 #[tauri::command]
@@ -548,7 +603,10 @@ pub fn run() {
             prepare_text_drop_file,
             drag_icon_path,
             hide_when_cursor_leaves,
-            seed_dev_db
+            seed_dev_db,
+            read_clip_file_bytes,
+            save_clip_file_bytes,
+            clip_file_exists
         ])
         .setup(|app| {
             // If we were launched on system startup via autostart, keep the
@@ -601,6 +659,17 @@ pub fn run() {
                 );
                 window.on_window_event(move |event| match event {
                     tauri::WindowEvent::Focused(false) => {
+                        // The tooltip is alwaysOnTop and never the target
+                        // of a drag, so hide it immediately rather than
+                        // after the 180ms main-window grace period — the
+                        // delay leaves it floating over other apps when
+                        // the user alt-tabs away from Clipend, which is
+                        // visually jarring. Tell the JS controller too so
+                        // its internal `visible` flag doesn't go stale.
+                        if let Some(tt) = app_handle.get_webview_window("tooltip") {
+                            let _ = tt.hide();
+                            let _ = tt.emit("tooltip-force-hidden", ());
+                        }
                         let my_gen = blur_gen
                             .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
                             + 1;
@@ -621,6 +690,8 @@ pub fn run() {
                                 return;
                             }
                             let _ = win.hide();
+                            // Defensive re-hide in case JS re-showed it
+                            // during the grace period.
                             if let Some(tt) = app.get_webview_window("tooltip") {
                                 let _ = tt.hide();
                             }

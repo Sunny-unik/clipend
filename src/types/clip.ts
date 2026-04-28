@@ -17,6 +17,9 @@ export interface Clip {
   /** When this clip was last successfully pushed to / received from the
    * cloud. null = never synced. < updatedAt = local edits are pending. */
   syncedAt: number | null;
+  /** Supabase Storage object URL for the image blob. Only set on image
+   * clips that have been uploaded; null otherwise. */
+  remoteImageUrl: string | null;
 }
 
 export interface Folder {
@@ -50,6 +53,7 @@ export interface ClipRow {
   created_at: number;
   updated_at: number;
   synced_at: number | null;
+  remote_image_url: string | null;
 }
 
 const IMAGE_EXTENSIONS = new Set([
@@ -93,5 +97,6 @@ export function clipFromRow(row: ClipRow): Clip {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     syncedAt: row.synced_at,
+    remoteImageUrl: row.remote_image_url,
   };
 }

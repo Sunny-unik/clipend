@@ -24,6 +24,17 @@ export function OptionsMenu() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
 
+  // Close the dropdown whenever the main window loses focus (e.g.
+  // Settings just opened and stole focus, or Alt-tab away). Without
+  // this, opening Settings → toggling main → clicking the ⋯ button
+  // can land on a stale `open: true` state — the click then toggles
+  // it to false and nothing shows.
+  useEffect(() => {
+    const handleBlur = () => setOpen(false);
+    window.addEventListener("blur", handleBlur);
+    return () => window.removeEventListener("blur", handleBlur);
+  }, []);
+
   const openSettings = async (tab?: "account") => {
     setOpen(false);
     const existing = await WebviewWindow.getByLabel("settings");
@@ -61,7 +72,7 @@ export function OptionsMenu() {
     <div className="options-menu-wrapper" ref={menuRef}>
       <button
         className="options-btn"
-        onClick={() => setOpen(!open)}
+        onClick={() => setOpen((prev) => !prev)}
         title="Options"
       >
         &#8230;

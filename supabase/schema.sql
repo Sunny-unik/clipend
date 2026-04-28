@@ -59,18 +59,56 @@ create policy "own deletions" on public.deleted_clips
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- Enable realtime publication for all three tables so clients get
--- postgres_changes events on insert/update/delete.
-alter publication supabase_realtime add table public.clips;
-alter publication supabase_realtime add table public.settings;
-alter publication supabase_realtime add table public.deleted_clips;
+-- postgres_changes events on insert/update/delete. Wrapped in DO
+-- blocks because `alter publication ... add table` raises 42710
+-- (duplicate_object) on re-run if the table is already a member,
+-- and Postgres has no `add table if not exists` for publications.
+do $$ begin
+  alter publication supabase_realtime add table public.clips;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.settings;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.deleted_clips;
+exception when duplicate_object then null; end $$;
 
--- Storage bucket for image clips (Phase 3). Create it via the Supabase
--- dashboard (Storage → New bucket → name: "clips-images", public = false),
--- then run the policies below.
---
--- create policy "own image reads" on storage.objects for select
---   using (bucket_id = 'clips-images' and auth.uid()::text = (storage.foldername(name))[1]);
--- create policy "own image writes" on storage.objects for insert
---   with check (bucket_id = 'clips-images' and auth.uid()::text = (storage.foldername(name))[1]);
--- create policy "own image deletes" on storage.objects for delete
---   using (bucket_id = 'clips-images' and auth.uid()::text = (storage.foldername(name))[1]);
+-- Storage bucket for clip blobs (images, copied files, anything with a
+-- file_path). The bucket itself has to be created via the Supabase
+-- dashboard (Storage → New bucket → name: "clips-files", public = off)
+-- — Supabase doesn't expose bucket creation through plain SQL. While
+-- you're there, set a sensible per-file size limit (e.g. 25 MB) so a
+-- giant copied video doesn't blow your egress bill. Once the bucket
+-- exists, the policies below restrict access so each user can only
+-- touch files under their own {user_id}/ folder.
+drop policy if exists "own clip file reads" on storage.objects;
+create policy "own clip file reads" on storage.objects for select
+  using (
+    bucket_id = 'clips-files'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+drop policy if exists "own clip file writes" on storage.objects;
+create policy "own clip file writes" on storage.objects for insert
+  with check (
+    bucket_id = 'clips-files'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+drop policy if exists "own clip file updates" on storage.objects;
+create policy "own clip file updates" on storage.objects for update
+  using (
+    bucket_id = 'clips-files'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  )
+  with check (
+    bucket_id = 'clips-files'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+drop policy if exists "own clip file deletes" on storage.objects;
+create policy "own clip file deletes" on storage.objects for delete
+  using (
+    bucket_id = 'clips-files'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );

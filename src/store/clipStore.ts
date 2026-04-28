@@ -142,6 +142,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
       isFavorite: false,
       folderId: null,
       syncedAt: null,
+      remoteImageUrl: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -322,6 +323,10 @@ export const useClipStore = create<ClipStore>((set, get) => ({
       id: nanoid(),
       isPinned: false,
       syncedAt: null,
+      // Even if the source clip had a remote image, the duplicate is a
+      // brand-new id with no Storage object yet — null forces a fresh
+      // upload from the local file_path on next sync.
+      remoteImageUrl: null,
       createdAt: now,
       updatedAt: now,
     };

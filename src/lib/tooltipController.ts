@@ -38,6 +38,15 @@ export async function setupTooltipListeners() {
     mouseOverTooltip = false;
     scheduleHide();
   });
+  // Rust forcibly hides the tooltip when the main window loses focus.
+  // We need to mirror that into our local state, otherwise the next
+  // showTooltip() short-circuits on the stale `visible` flag and the
+  // tooltip never re-appears.
+  await listen("tooltip-force-hidden", () => {
+    visible = false;
+    mouseOverTooltip = false;
+    cancelPendingHide();
+  });
 }
 
 export function cancelPendingHide() {

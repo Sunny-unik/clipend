@@ -1,8 +1,18 @@
 import { useEffect } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { listen, emit } from "@tauri-apps/api/event";
 import { useAuthStore } from "../store/authStore";
 import { useSyncStore, type SyncStatus } from "../store/syncStore";
-import { SYNC_STATE_EVENT, type SyncStateSnapshot } from "../services/sync";
+import {
+  SYNC_STATE_EVENT,
+  retrySync,
+  type SyncStateSnapshot,
+} from "../services/sync";
+
+/**
+ * Settings webview asks main to run a sync — the actual ticker only
+ * lives there. Main listens for this event in App.tsx.
+ */
+const SYNC_RETRY_EVENT = "clipend:sync-retry";
 
 function formatRelative(ms: number): string {
   const delta = Date.now() - ms;
@@ -109,9 +119,37 @@ export function AccountTab() {
           {user?.email && <div className="account-email">{user.email}</div>}
         </div>
       </div>
-      <p className="settings-note">
-        {syncLabel(syncStatus, lastPullAt, pendingCount)}
-      </p>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <p className="settings-note" style={{ margin: 0 }}>
+          {syncLabel(syncStatus, lastPullAt, pendingCount)}
+        </p>
+        {/* Enable only when there's actual work — pending clips, or
+            we're in error/offline so the user can retry the failed
+            pull. Disabled when everything's already in sync, since
+            clicking it would just re-run a no-op tick. */}
+        <button
+          className="settings-btn"
+          disabled={
+            syncStatus === "syncing" ||
+            (pendingCount === 0 &&
+              syncStatus !== "error" &&
+              syncStatus !== "offline")
+          }
+          onClick={() => {
+            // Settings webview can't drive the sync directly — only
+            // the main window owns the ticker. Ask main to run one;
+            // the broadcast back updates this UI's status/pending count.
+            retrySync();
+            emit(SYNC_RETRY_EVENT).catch(() => {});
+          }}
+        >
+          {syncStatus === "syncing"
+            ? "Syncing…"
+            : syncStatus === "error" || syncStatus === "offline"
+              ? "Retry"
+              : "Sync now"}
+        </button>
+      </div>
       <button
         className="settings-btn"
         style={{ alignSelf: "flex-start" }}
