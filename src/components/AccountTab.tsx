@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { listen, emit } from "@tauri-apps/api/event";
 import { useAuthStore } from "../store/authStore";
 import { useSyncStore, type SyncStatus } from "../store/syncStore";
@@ -8,6 +8,7 @@ import {
   retrySync,
   type SyncStateSnapshot,
 } from "../services/sync";
+import { ConfirmModal } from "./ConfirmModal";
 
 /**
  * Settings webview asks main to run a sync — the actual ticker only
@@ -53,6 +54,7 @@ export function AccountTab() {
   const initDrive = useDriveStore((s) => s.init);
   const driveConnect = useDriveStore((s) => s.connect);
   const driveDisconnect = useDriveStore((s) => s.disconnect);
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
 
   // Sync ticker runs only in the main window. Mirror its broadcast state
   // into this webview's syncStore so the UI here stays accurate.
@@ -162,6 +164,14 @@ export function AccountTab() {
               ? "Retry"
               : "Sync now"}
         </button>
+        <button
+          className="settings-btn"
+          style={{ color: "#e08585" }}
+          onClick={() => setConfirmDeleteAll(true)}
+          title="Delete every clip locally, in the cloud, and in Drive"
+        >
+          Delete all
+        </button>
       </div>
       <DriveSection
         status={driveStatus}
@@ -172,7 +182,7 @@ export function AccountTab() {
       />
       <button
         className="settings-btn"
-        style={{ alignSelf: "flex-start" }}
+        style={{ alignSelf: "flex-end" }}
         onClick={() => signOut()}
       >
         Sign out
@@ -180,6 +190,24 @@ export function AccountTab() {
       {error && <p className="settings-error">{error}</p>}
       {syncError && syncStatus !== "syncing" && (
         <p className="settings-error">Sync: {syncError}</p>
+      )}
+      {confirmDeleteAll && (
+        <ConfirmModal
+          title="Delete all clips?"
+          message={
+            "This wipes every clip on this device, removes them from the cloud, and deletes the matching files from your Drive folder. " +
+            "Pinned and favorited clips are kept. This cannot be undone."
+          }
+          confirmLabel="Delete all"
+          danger
+          onConfirm={() => {
+            // The main window owns the clip store and runs the
+            // actual wipe (local DB + tombstones + Drive cleanup).
+            emit("clipend:drop-all-clips").catch(() => {});
+            setConfirmDeleteAll(false);
+          }}
+          onClose={() => setConfirmDeleteAll(false)}
+        />
       )}
     </div>
   );

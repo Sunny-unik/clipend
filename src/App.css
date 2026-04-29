@@ -711,6 +711,16 @@ body {
   background: #006bb3;
 }
 
+.modal-btn--danger {
+  background: #c4302b;
+  border-color: #c4302b;
+  color: #fff;
+}
+
+.modal-btn--danger:hover {
+  background: #a02622;
+}
+
 /* Info Modal */
 .info-grid {
   display: grid;

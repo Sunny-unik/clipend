@@ -10,8 +10,9 @@ import {
   signOut,
 } from "../services/auth";
 import { getSupabase, isSupabaseConfigured } from "../services/supabase";
-import { getSetting, setSetting } from "../services/database";
+import { getDatabase, getSetting, removeSetting, setSetting } from "../services/database";
 import { startSync, stopSync } from "../services/sync";
+import { useClipStore } from "./clipStore";
 
 /**
  * Sync runs from a single webview only. We pick the main window because it's
@@ -34,6 +35,31 @@ function maybeStartSync(session: Session | null): void {
 }
 
 const LOGIN_PROMPT_DISMISSED_KEY = "loginPromptDismissed";
+const LAST_USER_ID_KEY = "lastSignedInUserId";
+
+/**
+ * Wipe local-but-user-scoped data. Runs when a different Supabase
+ * user signs in on a device that previously hosted another user.
+ * Without this, User B sees User A's local clips and could even
+ * push them up under their own account on the next sync tick.
+ *
+ * Drive tokens are already user-scoped (keyed by Supabase user id in
+ * googleDrive.ts) so they don't need explicit cleanup — User B
+ * simply has no tokens until they connect Drive themselves. We do
+ * remove any LEGACY non-scoped Drive keys that may have been written
+ * by an earlier build, in case the device was upgraded mid-flight.
+ */
+async function wipeForUserSwitch(): Promise<void> {
+  const db = await getDatabase();
+  await db.execute("DELETE FROM clips");
+  await useClipStore.getState().loadClips(true);
+  await Promise.all([
+    removeSetting("drive.access_token"),
+    removeSetting("drive.refresh_token"),
+    removeSetting("drive.expires_at"),
+    removeSetting("drive.folder_id"),
+  ]);
+}
 
 type AuthStatus = "loading" | "signed-in" | "signed-out" | "disabled";
 
@@ -179,5 +205,23 @@ export const useAuthStore = create<AuthStore>((set) => ({
       loginPromptDismissed: session ? true : prev.loginPromptDismissed,
     }));
     maybeStartSync(session);
+
+    // Detect a different user signing in on this device and wipe
+    // user-scoped local state. Compares against the persisted
+    // last-signed-in id rather than the previous in-memory user
+    // because sign-out → sign-in-as-different-user goes through a
+    // null intermediate state that would otherwise mask the switch.
+    const newUserId = session?.user?.id ?? null;
+    if (newUserId) {
+      (async () => {
+        const lastUserId = await getSetting(LAST_USER_ID_KEY);
+        if (lastUserId && lastUserId !== newUserId) {
+          await wipeForUserSwitch();
+        }
+        await setSetting(LAST_USER_ID_KEY, newUserId);
+      })().catch((err) =>
+        console.warn("[auth] user-switch handling failed:", err)
+      );
+    }
   },
 }));

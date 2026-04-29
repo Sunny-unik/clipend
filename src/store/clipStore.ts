@@ -4,6 +4,7 @@ import type { Clip, ClipType } from "../types/clip";
 import {
   insertClip,
   getClips,
+  getDatabase,
   deleteClip,
   updateClip,
   findClipByHash,
@@ -52,6 +53,11 @@ interface ClipStore {
   duplicateClip: (id: string) => Promise<void>;
   editClip: (id: string, content: string) => Promise<void>;
   setTitle: (id: string, title: string | null) => Promise<void>;
+  /** Wipe every clip on this device EXCEPT pinned and favorited ones.
+   * Local SQLite + cloud row + Drive blob. Exposed in Settings →
+   * Account. Pinned/favorite act as keep-flags here, same as in the
+   * 7-day retention sweep. */
+  dropAllClips: () => Promise<void>;
 }
 
 const PAGE_SIZE = 50;
@@ -370,6 +376,22 @@ export const useClipStore = create<ClipStore>((set, get) => ({
       ),
     }));
     requestSync();
+  },
+
+  dropAllClips: async () => {
+    // Source the id list from SQLite, not the in-memory store —
+    // when triggered from the Settings webview the local store is
+    // empty (different webview, different Zustand instance).
+    // Pinned/favorite rows are kept (same keep-flags the retention
+    // sweep honours). Going through removeClips means deleteRemote
+    // runs per clip, so tombstones + Drive cleanup propagate
+    // consistently.
+    const db = await getDatabase();
+    const rows = await db.select<{ id: string }[]>(
+      "SELECT id FROM clips WHERE is_pinned = 0 AND is_favorite = 0"
+    );
+    if (rows.length === 0) return;
+    await get().removeClips(rows.map((r) => r.id));
   },
 
   setTitle: async (id, title) => {

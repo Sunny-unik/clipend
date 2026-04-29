@@ -1,8 +1,12 @@
 -- Clipend — Supabase schema
--- Run this once in the Supabase SQL editor after creating a new project.
--- It creates the clips/settings/deleted_clips tables, row-level-security
--- policies that scope every row to its owner, and enables realtime on all
--- three tables so devices can subscribe to each other's changes.
+-- Run this in the Supabase SQL editor whenever the schema changes.
+-- The whole script is idempotent — re-running on an existing project
+-- is safe.
+--
+-- Supabase only stores metadata: clip rows, settings (JSON blob per
+-- user), and a deletion log. Actual file blobs (images, copied files)
+-- live in each user's own Google Drive — see src/services/googleDrive.ts.
+-- No Storage buckets or storage.objects policies are needed here.
 
 create table if not exists public.clips (
   id text primary key,
@@ -73,42 +77,17 @@ do $$ begin
   alter publication supabase_realtime add table public.deleted_clips;
 exception when duplicate_object then null; end $$;
 
--- Storage bucket for clip blobs (images, copied files, anything with a
--- file_path). The bucket itself has to be created via the Supabase
--- dashboard (Storage → New bucket → name: "clips-files", public = off)
--- — Supabase doesn't expose bucket creation through plain SQL. While
--- you're there, set a sensible per-file size limit (e.g. 25 MB) so a
--- giant copied video doesn't blow your egress bill. Once the bucket
--- exists, the policies below restrict access so each user can only
--- touch files under their own {user_id}/ folder.
+-- Drop the legacy storage policies from the previous Supabase Storage
+-- backend. Idempotent — if these never existed (fresh project), the
+-- statements no-op. If you migrated from a build that used the
+-- "clips-files" bucket, this also lets you safely delete that bucket
+-- in the dashboard without leaving orphaned policies behind.
 drop policy if exists "own clip file reads" on storage.objects;
-create policy "own clip file reads" on storage.objects for select
-  using (
-    bucket_id = 'clips-files'
-    and auth.uid()::text = (storage.foldername(name))[1]
-  );
-
 drop policy if exists "own clip file writes" on storage.objects;
-create policy "own clip file writes" on storage.objects for insert
-  with check (
-    bucket_id = 'clips-files'
-    and auth.uid()::text = (storage.foldername(name))[1]
-  );
-
 drop policy if exists "own clip file updates" on storage.objects;
-create policy "own clip file updates" on storage.objects for update
-  using (
-    bucket_id = 'clips-files'
-    and auth.uid()::text = (storage.foldername(name))[1]
-  )
-  with check (
-    bucket_id = 'clips-files'
-    and auth.uid()::text = (storage.foldername(name))[1]
-  );
-
 drop policy if exists "own clip file deletes" on storage.objects;
-create policy "own clip file deletes" on storage.objects for delete
-  using (
-    bucket_id = 'clips-files'
-    and auth.uid()::text = (storage.foldername(name))[1]
-  );
+-- And the even-older image-only names from the original Phase 3 plan.
+drop policy if exists "own image reads" on storage.objects;
+drop policy if exists "own image writes" on storage.objects;
+drop policy if exists "own image updates" on storage.objects;
+drop policy if exists "own image deletes" on storage.objects;

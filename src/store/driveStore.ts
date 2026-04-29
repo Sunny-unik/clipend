@@ -5,6 +5,7 @@ import {
   isDriveConfigured,
   isDriveConnected,
 } from "../services/googleDrive";
+import { useAuthStore } from "./authStore";
 
 type DriveStatus = "loading" | "connected" | "disconnected" | "disabled";
 
@@ -63,3 +64,18 @@ export const useDriveStore = create<DriveStore>((set, get) => ({
     }
   },
 }));
+
+// Drive tokens are scoped per Supabase user id, so the connection
+// state has to follow whoever's signed in. When the auth user changes
+// (sign-in / sign-out / switch), re-init so the UI flips to the
+// right state — which may be "connected" automatically if that user
+// previously linked Drive on this device.
+let lastSeenUserId: string | null = null;
+useAuthStore.subscribe((state) => {
+  const userId = state.user?.id ?? null;
+  if (userId === lastSeenUserId) return;
+  lastSeenUserId = userId;
+  useDriveStore.getState().init().catch((err) =>
+    console.warn("[drive] re-init on auth change failed:", err)
+  );
+});

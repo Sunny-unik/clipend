@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getSetting, removeSetting, setSetting } from "./database";
+import { useAuthStore } from "../store/authStore";
 
 /**
  * Google Drive integration for per-user file sync.
@@ -46,11 +47,23 @@ const DRIVE_UPLOAD = "https://www.googleapis.com/upload/drive/v3";
 // the SQLite db filename and the Tauri bundle identifier.
 const FOLDER_NAME = import.meta.env.DEV ? "Clipend Dev" : "Clipend";
 
-// SQLite settings keys (local-only, never synced to Supabase).
-const KEY_ACCESS = "drive.access_token";
-const KEY_REFRESH = "drive.refresh_token";
-const KEY_EXPIRES = "drive.expires_at";
-const KEY_FOLDER = "drive.folder_id";
+// SQLite settings keys are scoped by Supabase user id so multiple
+// Google identities sharing a device don't stomp each other's tokens.
+// All keys are local-only and never round-trip to Supabase (the
+// settings whitelist in sync.ts excludes everything starting with
+// "drive.").
+function tokenKeys(supabaseUserId: string) {
+  return {
+    access: `drive.${supabaseUserId}.access_token`,
+    refresh: `drive.${supabaseUserId}.refresh_token`,
+    expires: `drive.${supabaseUserId}.expires_at`,
+    folder: `drive.${supabaseUserId}.folder_id`,
+  };
+}
+
+function currentSupabaseUserId(): string | null {
+  return useAuthStore.getState().user?.id ?? null;
+}
 
 export class DriveNotConfiguredError extends Error {
   constructor() {
@@ -98,10 +111,13 @@ interface DriveTokens {
 }
 
 async function loadTokens(): Promise<DriveTokens | null> {
+  const userId = currentSupabaseUserId();
+  if (!userId) return null;
+  const keys = tokenKeys(userId);
   const [access, refresh, expires] = await Promise.all([
-    getSetting(KEY_ACCESS),
-    getSetting(KEY_REFRESH),
-    getSetting(KEY_EXPIRES),
+    getSetting(keys.access),
+    getSetting(keys.refresh),
+    getSetting(keys.expires),
   ]);
   if (!access || !refresh || !expires) return null;
   return {
@@ -112,16 +128,24 @@ async function loadTokens(): Promise<DriveTokens | null> {
 }
 
 async function saveTokens(tokens: DriveTokens): Promise<void> {
-  await setSetting(KEY_ACCESS, tokens.accessToken);
-  await setSetting(KEY_REFRESH, tokens.refreshToken);
-  await setSetting(KEY_EXPIRES, String(tokens.expiresAt));
+  const userId = currentSupabaseUserId();
+  if (!userId) {
+    throw new Error("can't save Drive tokens: no signed-in Supabase user");
+  }
+  const keys = tokenKeys(userId);
+  await setSetting(keys.access, tokens.accessToken);
+  await setSetting(keys.refresh, tokens.refreshToken);
+  await setSetting(keys.expires, String(tokens.expiresAt));
 }
 
 async function clearTokens(): Promise<void> {
-  await removeSetting(KEY_ACCESS);
-  await removeSetting(KEY_REFRESH);
-  await removeSetting(KEY_EXPIRES);
-  await removeSetting(KEY_FOLDER);
+  const userId = currentSupabaseUserId();
+  if (!userId) return;
+  const keys = tokenKeys(userId);
+  await removeSetting(keys.access);
+  await removeSetting(keys.refresh);
+  await removeSetting(keys.expires);
+  await removeSetting(keys.folder);
 }
 
 /* ───────── public surface ───────── */
@@ -366,9 +390,13 @@ async function createClipendFolder(): Promise<string> {
 
 /** Cached lookup with a self-heal fallback. If the user manually
  * deleted the folder, the cached id 404s on first use, we re-find or
- * recreate, and update the cache. */
+ * recreate, and update the cache. Cache is per Supabase user so
+ * switching users doesn't try to reuse the wrong folder. */
 async function getOrCreateFolderId(): Promise<string> {
-  const cached = await getSetting(KEY_FOLDER);
+  const userId = currentSupabaseUserId();
+  if (!userId) throw new DriveNotConnectedError();
+  const folderKey = tokenKeys(userId).folder;
+  const cached = await getSetting(folderKey);
   if (cached) {
     // Verify it still exists. A trashed folder reads as trashed=true,
     // a hard-deleted one 404s. Either way, force re-find.
@@ -379,11 +407,11 @@ async function getOrCreateFolderId(): Promise<string> {
       const data = (await verify.json()) as { trashed?: boolean };
       if (!data.trashed) return cached;
     }
-    await removeSetting(KEY_FOLDER);
+    await removeSetting(folderKey);
   }
   const existing = await findClipendFolder();
   const id = existing ?? (await createClipendFolder());
-  await setSetting(KEY_FOLDER, id);
+  await setSetting(folderKey, id);
   return id;
 }
 

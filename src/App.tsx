@@ -110,6 +110,21 @@ function App() {
       unlistenRetry = fn;
     });
 
+    // Settings webview's "Delete all clips" button fires this. Source
+    // of truth for clip state lives in the main window's store, so we
+    // run the wipe here.
+    let unlistenDropAll: (() => void) | null = null;
+    listen("clipend:drop-all-clips", () => {
+      useClipStore
+        .getState()
+        .dropAllClips()
+        .catch((err) =>
+          console.warn("[clipend] drop-all-clips failed:", err)
+        );
+    }).then((fn) => {
+      unlistenDropAll = fn;
+    });
+
     // Deep-link: when the browser sends us back after Google sign-in via
     // clipend://auth-callback?code=..., the Rust side forwards the URL here.
     let unlistenDeepLink: (() => void) | null = null;
@@ -136,6 +151,7 @@ function App() {
       unlisten?.();
       unlistenSettings?.();
       unlistenRetry?.();
+      unlistenDropAll?.();
       unlistenDeepLink?.();
     };
   }, [loadClips, loadSettings, initAuth]);
