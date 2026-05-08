@@ -110,6 +110,8 @@ jobs:
           # "disabled" → no Sign-in / Account UI.
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_DRIVE_CLIENT_ID }}
+          VITE_GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.VITE_GOOGLE_DRIVE_CLIENT_SECRET }}
         with:
           owner: sunny-unik
           repo: clipend-releases
